@@ -1,3 +1,0 @@
-[submodule "cryptofuzz-corpora"]
-	path = cryptofuzz-corpora
-	url = https://github.com/guidovranken/cryptofuzz-corpora.git
