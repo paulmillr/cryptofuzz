@@ -363,7 +363,11 @@ static uint64_t getRandomKEM(void) {
 }
 
 static uint64_t getRandomPQSignature(void) {
-    return PQSIGLUT[ PRNG() % (sizeof(PQSIGLUT) / sizeof(PQSIGLUT[0])) ].id;
+    if ( !cryptofuzz_options->pqSignatures.Empty() ) {
+        return cryptofuzz_options->pqSignatures.At(PRNG());
+    } else {
+        return PQSIGLUT[ PRNG() % (sizeof(PQSIGLUT) / sizeof(PQSIGLUT[0])) ].id;
+    }
 }
 
 static size_t getKEMSeedSize(const uint64_t kemID) {

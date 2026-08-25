@@ -36,62 +36,12 @@ jobs:
 
       - name: Select Noble adapter
         id: project
+        working-directory: cryptofuzz
         env:
           ADAPTERS_ROOT: ${{ github.workspace }}/cryptofuzz/modules
           NOBLE_SOURCE_ROOT: ${{ github.workspace }}/noble-source
           PROJECT_NAME: ${{ github.event.repository.name }}
-        run: |
-          if [[ ! "$PROJECT_NAME" =~ ^noble-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
-            echo "Unsupported caller repository name: $PROJECT_NAME" >&2
-            exit 1
-          fi
-
-          module_dir="$ADAPTERS_ROOT/$PROJECT_NAME"
-          for required_file in package.json package-lock.json Makefile build.mjs; do
-            if [[ ! -f "$module_dir/$required_file" ]]; then
-              echo "No complete Cryptofuzz Noble adapter exists for $PROJECT_NAME" >&2
-              exit 1
-            fi
-          done
-
-          expected_package="@noble/${PROJECT_NAME#noble-}"
-          ADAPTER_PACKAGE_JSON="$module_dir/package.json" \
-          EXPECTED_ADAPTER_NAME="cryptofuzz-$PROJECT_NAME" \
-          EXPECTED_SOURCE_PACKAGE="$expected_package" \
-          SOURCE_PACKAGE_JSON="$NOBLE_SOURCE_ROOT/package.json" \
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          def read_package(path):
-              try:
-                  with open(path, encoding='utf-8') as package_file:
-                      return json.load(package_file)
-              except (OSError, json.JSONDecodeError) as error:
-                  raise SystemExit(f'Cannot read package manifest {path}: {error}')
-
-          adapter = read_package(os.environ['ADAPTER_PACKAGE_JSON'])
-          source = read_package(os.environ['SOURCE_PACKAGE_JSON'])
-          expected_adapter = os.environ['EXPECTED_ADAPTER_NAME']
-          expected_source = os.environ['EXPECTED_SOURCE_PACKAGE']
-
-          if adapter.get('name') != expected_adapter:
-              sys.exit(f'Adapter package name must be {expected_adapter}')
-          if expected_source not in adapter.get('dependencies', {}):
-              sys.exit(f'{expected_adapter} does not depend on {expected_source}')
-          if source.get('name') != expected_source:
-              sys.exit(f'Caller package name must be {expected_source}')
-          PY
-
-          echo "module=$PROJECT_NAME" >> "$GITHUB_OUTPUT"
-          echo "source_package=$expected_package" >> "$GITHUB_OUTPUT"
-          if [[ "$PROJECT_NAME" == noble-post-quantum ]]; then
-            echo "max_len=65536" >> "$GITHUB_OUTPUT"
-          else
-            echo "max_len=4096" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Selected $PROJECT_NAME for $expected_package"
+        run: ./tools/select-noble-adapter.py
 
       - name: Record Noble revision
         id: source
@@ -161,29 +111,7 @@ jobs:
           NOBLE_SOURCE_PACKAGE: ${{ steps.project.outputs.source_package }}
           NOBLE_SOURCE_SHA: ${{ steps.source.outputs.sha }}
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          mkdir -p fuzz-artifacts fuzz-corpus
-          echo "Fuzzing $NOBLE_MODULE at $NOBLE_SOURCE_SHA with seed $FUZZ_SEED" | tee -a "$GITHUB_STEP_SUMMARY"
-          {
-            echo "repository=$NOBLE_REPOSITORY"
-            echo "source_package=$NOBLE_SOURCE_PACKAGE"
-            echo "source_sha=$NOBLE_SOURCE_SHA"
-            echo "module=$NOBLE_MODULE"
-            echo "seed=$FUZZ_SEED"
-            echo "max_total_time=7200"
-            echo "max_len=$FUZZ_MAX_LEN"
-            echo "per_input_timeout=600"
-          } > fuzz-artifacts/run-metadata.txt
-          # Sanitized QuickJS needs more than a minute for valid high-memory
-          # Argon2 and expensive PQ inputs, so keep this watchdog above them.
-          ./cryptofuzz fuzz-corpus \
-            "-seed=$FUZZ_SEED" \
-            -max_total_time=7200 \
-            "-max_len=$FUZZ_MAX_LEN" \
-            -timeout=600 \
-            -print_final_stats=1 \
-            -artifact_prefix=fuzz-artifacts/ \
-            "--force-module=$NOBLE_MODULE"
+        run: ./tools/run-noble-fuzz.sh
 
       - name: Upload fuzzing artifacts and corpus
         if: always()
@@ -193,5 +121,8 @@ jobs:
           path: |
             cryptofuzz/fuzz-artifacts/
             cryptofuzz/fuzz-corpus/
+            cryptofuzz/fuzz-corpus-argon2/
+            cryptofuzz/fuzz-corpus-pairing/
+            cryptofuzz/fuzz-corpus-slh-dsa/
           if-no-files-found: ignore
           retention-days: 14
