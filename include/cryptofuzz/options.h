@@ -27,7 +27,7 @@ class Options {
     public:
         Options(const int argc, char** argv, const std::vector<std::string> extraArguments = {});
 
-        EnabledTypes operations, ciphers, digests, curves, calcOps, disableModules;
+        EnabledTypes operations, ciphers, digests, curves, pqSignatures, calcOps, disableModules;
         std::optional<uint64_t> forceModule = std::nullopt;
         std::optional<FILE*> jsonDumpFP = std::nullopt;
         size_t minModules = 1;

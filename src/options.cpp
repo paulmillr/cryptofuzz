@@ -51,6 +51,9 @@ std::string Options::calcOpToBase(const std::string calcOp) {
 }
 
 Options::Options(const int argc, char** argv, const std::vector<std::string> extraArguments) {
+    EnabledTypes operationOverride;
+    bool haveOperationOverride = false;
+
     for (int i = 0; i < argc; i++) {
         arguments.push_back( std::string(argv[i]) );
     }
@@ -64,10 +67,15 @@ Options::Options(const int argc, char** argv, const std::vector<std::string> ext
 
         if ( arg == "--debug" ) {
             debug = true;
-        } else if ( !parts.empty() && parts[0] == "--operations" ) {
+        } else if ( !parts.empty() && (parts[0] == "--operations" || parts[0] == "--only-operations") ) {
             if ( parts.size() != 2 ) {
-                std::cout << "Expected argument after --operations=" << std::endl;
+                std::cout << "Expected argument after " << parts[0] << "=" << std::endl;
                 exit(1);
+            }
+
+            const bool replaceOperations = parts[0] == "--only-operations";
+            if ( replaceOperations ) {
+                haveOperationOverride = true;
             }
 
             std::vector<std::string> operationStrings;
@@ -77,7 +85,11 @@ Options::Options(const int argc, char** argv, const std::vector<std::string> ext
                 bool found = false;
                 for (size_t i = 0; i < (sizeof(repository::OperationLUT) / sizeof(repository::OperationLUT[0])); i++) {
                     if ( boost::iequals(curOpStr, std::string(repository::OperationLUT[i].name)) ) {
-                        this->operations.Add(repository::OperationLUT[i].id);
+                        if ( replaceOperations ) {
+                            operationOverride.Add(repository::OperationLUT[i].id);
+                        } else {
+                            this->operations.Add(repository::OperationLUT[i].id);
+                        }
                         found = true;
                         break;
                     }
@@ -157,6 +169,30 @@ Options::Options(const int argc, char** argv, const std::vector<std::string> ext
 
                 if ( found == false ) {
                     std::cout << "Undefined curve: " << curOpStr << std::endl;
+                    exit(1);
+                }
+            }
+        } else if ( !parts.empty() && parts[0] == "--pqsigs" ) {
+            if ( parts.size() != 2 ) {
+                std::cout << "Expected argument after --pqsigs=" << std::endl;
+                exit(1);
+            }
+
+            std::vector<std::string> pqSignatureStrings;
+            boost::split(pqSignatureStrings, parts[1], boost::is_any_of(","));
+
+            for (const auto& curPQSignatureStr : pqSignatureStrings) {
+                bool found = false;
+                for (size_t i = 0; i < (sizeof(repository::PQSIGLUT) / sizeof(repository::PQSIGLUT[0])); i++) {
+                    if ( boost::iequals(curPQSignatureStr, std::string(repository::PQSIGLUT[i].name)) ) {
+                        this->pqSignatures.Add(repository::PQSIGLUT[i].id);
+                        found = true;
+                        break;
+                    }
+                }
+
+                if ( found == false ) {
+                    std::cout << "Undefined PQ signature: " << curPQSignatureStr << std::endl;
                     exit(1);
                 }
             }
@@ -412,6 +448,10 @@ Options::Options(const int argc, char** argv, const std::vector<std::string> ext
 
             exit(0);
         }
+    }
+
+    if ( haveOperationOverride ) {
+        operations = operationOverride;
     }
 }
 

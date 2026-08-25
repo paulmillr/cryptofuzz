@@ -30,6 +30,12 @@ There are a number of options to customize your fuzzing run defined in [options.
   Comma separated list of digests to test.
 --curves
   Comma separated list of curves to test.
+--pqsigs
+  Comma separated list of post-quantum signature schemes to test.
+--operations
+  Comma separated list of operations to enable in addition to build defaults.
+--only-operations
+  Comma separated list of operations that replaces the build defaults.
 --force-module
   Forces the module specified by a corpus entry to be the specified module.
 --disable-modules

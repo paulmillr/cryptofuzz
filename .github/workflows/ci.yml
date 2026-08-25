@@ -35,7 +35,7 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Check locked Rust adapters
-        run: ./test-rust.sh
+        run: ./tools/test-rust.sh
 
   go:
     runs-on: ubuntu-24.04

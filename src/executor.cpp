@@ -315,6 +315,9 @@ template<> void ExecutorBase<component::PQSignatureKeyPair, operation::PQSIG_Key
 }
 
 template<> std::optional<component::PQSignatureKeyPair> ExecutorBase<component::PQSignatureKeyPair, operation::PQSIG_KeyGen>::callModule(std::shared_ptr<Module> module, operation::PQSIG_KeyGen& op) const {
+    if ( !options.pqSignatures.Have(op.pqSignatureType.Get()) ) {
+        return std::nullopt;
+    }
     return module->OpPQSIG_KeyGen(op);
 }
 
@@ -357,6 +360,9 @@ template<> void ExecutorBase<component::PQSignature, operation::PQSIG_Sign>::pos
 }
 
 template<> std::optional<component::PQSignature> ExecutorBase<component::PQSignature, operation::PQSIG_Sign>::callModule(std::shared_ptr<Module> module, operation::PQSIG_Sign& op) const {
+    if ( !options.pqSignatures.Have(op.pqSignatureType.Get()) ) {
+        return std::nullopt;
+    }
     return module->OpPQSIG_Sign(op);
 }
 
@@ -367,6 +373,9 @@ template<> void ExecutorBase<bool, operation::PQSIG_Verify>::postprocess(std::sh
 }
 
 template<> std::optional<bool> ExecutorBase<bool, operation::PQSIG_Verify>::callModule(std::shared_ptr<Module> module, operation::PQSIG_Verify& op) const {
+    if ( !options.pqSignatures.Have(op.pqSignatureType.Get()) ) {
+        return std::nullopt;
+    }
     return module->OpPQSIG_Verify(op);
 }
 
