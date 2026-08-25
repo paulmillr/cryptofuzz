@@ -1,21 +1,9 @@
 # noble-hashes
 
-## Library compilation
+`@noble/hashes` is built and tested by the maintained Noble workflow. In
+addition to digests, HMAC, HKDF, and PBKDF2, the adapter covers scrypt and
+Argon2d/Argon2i/Argon2id through Cryptofuzz's KDF operations. See
+[noble cryptography](noble.md).
 
-Run the steps for building [libfuzzer-js](libfuzzer-js.md) first.
-
-```sh
-git clone --depth 1 https://github.com/paulmillr/noble-hashes.git
-cd noble-hashes/
-npm install && npm run build-release
-export NOBLE_HASHES_PATH=$(realpath build/noble-hashes.js)
-export CXXFLAGS="$CXXFLAGS -DCRYPTOFUZZ_NOBLE_HASHES"
-cd ../
-```
-
-## Module compilation
-
-```sh
-cd cryptofuzz/modules/noble-hashes/
-make
-```
+The adapter passes Noble's Argon2 implementation a 512 MiB `maxmem` limit;
+the fuzzed `m` value remains the requested memory cost.

@@ -6,7 +6,9 @@ RUSTFLAGS := "--cfg fuzzing -Cdebug-assertions -Cdebuginfo=1 -Cforce-frame-point
 module.a: module.o ./target/x86_64-unknown-linux-gnu/debug/libring_cryptofuzz.a
 	bash ../link.sh module.a ./target/x86_64-unknown-linux-gnu/debug/libring_cryptofuzz.a
 	ranlib module.a
-generate_ids : generate_ids.cpp
+../../repository_map.h: ../../tools/gen_repository.py
+	$(MAKE) -C ../.. repository_map.h
+generate_ids : generate_ids.cpp ../../repository_map.h
 	$(CXX) $(CXXFLAGS) generate_ids.cpp -o generate_ids
 src/ids.rs: generate_ids
 	./generate_ids

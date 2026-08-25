@@ -197,7 +197,9 @@ void Datasource::put(const void* p, const size_t size, const uint64_t id) {
     {
         const auto oldSize = out.size();
         out.resize(oldSize + size);
-        memcpy(out.data() + oldSize, p, size);
+        if ( size > 0 ) {
+            memcpy(out.data() + oldSize, p, size);
+        }
     }
 }
 

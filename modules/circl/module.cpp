@@ -29,8 +29,8 @@ std::optional<nlohmann::json> circl::getJsonResult(void) const {
     }
 
     try {
-        return nlohmann::json::parse(getResult());
-    } catch ( std::exception e ) {
+        return nlohmann::json::parse(res);
+    } catch ( const std::exception& ) {
         /* Must always parse correctly non-empty strings */
         abort();
     }
@@ -260,6 +260,42 @@ std::optional<component::Fp12> circl::OpBLS_Pairing(operation::BLS_Pairing& op) 
     circl_BLS_Pairing(toGoSlice(jsonStr));
 
     return getResultAs<component::Fp12>();
+}
+
+std::optional<component::KEMKeyPair> circl::OpKEM_KeyGen(operation::KEM_KeyGen& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpKEM_KeyGen(toGoSlice(jsonStr));
+    return getResultAs<component::KEMKeyPair>();
+}
+
+std::optional<component::KEMEncapsulation> circl::OpKEM_Encapsulate(operation::KEM_Encapsulate& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpKEM_Encapsulate(toGoSlice(jsonStr));
+    return getResultAs<component::KEMEncapsulation>();
+}
+
+std::optional<component::SharedSecret> circl::OpKEM_Decapsulate(operation::KEM_Decapsulate& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpKEM_Decapsulate(toGoSlice(jsonStr));
+    return getResultAs<component::SharedSecret>();
+}
+
+std::optional<component::PQSignatureKeyPair> circl::OpPQSIG_KeyGen(operation::PQSIG_KeyGen& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpPQSIG_KeyGen(toGoSlice(jsonStr));
+    return getResultAs<component::PQSignatureKeyPair>();
+}
+
+std::optional<component::PQSignature> circl::OpPQSIG_Sign(operation::PQSIG_Sign& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpPQSIG_Sign(toGoSlice(jsonStr));
+    return getResultAs<component::PQSignature>();
+}
+
+std::optional<bool> circl::OpPQSIG_Verify(operation::PQSIG_Verify& op) {
+    auto jsonStr = op.ToJSON().dump();
+    circl_Cryptofuzz_OpPQSIG_Verify(toGoSlice(jsonStr));
+    return getResultAs<bool>();
 }
 
 } /* namespace module */

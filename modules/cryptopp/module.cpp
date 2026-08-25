@@ -56,6 +56,7 @@
 #include <square.h>
 #include <tiger.h>
 #include <twofish.h>
+#include <vector>
 #include <whrlpool.h>
 #include <xed25519.h>
 #include <xts.h>
@@ -158,8 +159,8 @@ namespace CryptoPP_detail {
                 /* Finalize */
                 {
                     size_t digestSize = hash.DigestSize();
-                    uint8_t out[digestSize];
-                    hash.Final(out);
+                    std::vector<uint8_t> out(digestSize);
+                    hash.Final(out.data());
 
                     switch ( op.digestType.Get() ) {
                         case    CF_DIGEST("SHAKE128"):
@@ -169,7 +170,7 @@ namespace CryptoPP_detail {
                             break;
                     }
 
-                    ret = component::Digest(out, digestSize);
+                    ret = component::Digest(out.data(), digestSize);
                 }
 
                 return ret;

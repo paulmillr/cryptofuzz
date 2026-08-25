@@ -1,149 +1,120 @@
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { concatBytes, hexToBytes } from '@noble/hashes/utils.js';
+import * as secp256k1 from '@noble/secp256k1';
+import * as ids from './ids.js';
 
-/* Simple emulation of subtle crypto using crypto-js */
-window.crypto.subtle = {};
-window.crypto.subtle.importKey = function(x, key) {
-    key = [...key].map(x => x.toString(16).padStart(2, '0')).join('');
-    key = CryptoJS.enc.Hex.parse(key);
-    return CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256.create(), key);
-}
-window.crypto.subtle.sign = function(x, key, msg) {
-    msg = [...msg].map(x => x.toString(16).padStart(2, '0')).join('');
-    msg = CryptoJS.enc.Hex.parse(msg);
-    key.reset();
-    key.update(msg);
-    var ret = key.finalize().toString()
-    ret = new Uint8Array(ret.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-    return ret;
-}
+secp256k1.hashes.sha256 = sha256;
+secp256k1.hashes.hmacSha256 = (key, message) => hmac(sha256, key, message);
 
-var OpECC_PrivateToPublic = function(FuzzerInput) {
-    var priv = BigInt(FuzzerInput['priv']);
-
-    try {
-        var pub = exports.getPublicKey(priv);
-        pub = exports.Point.fromHex(pub);
-        FuzzerOutput = JSON.stringify([pub.x.toString(), pub.y.toString()]);
-    } catch ( e ) { }
+function intToBytes(value, length) {
+  const number = BigInt(value);
+  if (number < 0n) throw new RangeError('negative integer');
+  const hex = number.toString(16);
+  if (hex.length > length * 2) throw new RangeError('integer does not fit');
+  return hexToBytes(hex.padStart(length * 2, '0'));
 }
 
-var OpECDSA_Sign = async function(FuzzerInput) {
-    var msg = FuzzerInput['cleartext'];
-    var priv = BigInt(FuzzerInput['priv']);
-
-    var signature = await exports.sign(msg, priv, {canonical : true});
-    signature = exports.Signature.fromHex(signature);
-
-    var pub = exports.getPublicKey(priv);
-    pub = exports.Point.fromHex(pub);
-
-    FuzzerOutput = JSON.stringify({
-        'signature' : [signature.r.toString(), signature.s.toString()],
-        'pub' : [pub.x.toString(), pub.y.toString()]});
+function point(input, prefix) {
+  const result = secp256k1.Point.fromAffine({
+    x: BigInt(input[`${prefix}_x`]),
+    y: BigInt(input[`${prefix}_y`]),
+  });
+  result.assertValidity();
+  return result;
 }
 
-var OpECDSA_Verify = function(FuzzerInput) {
-    var msg = FuzzerInput['cleartext'];
-    var x = BigInt(FuzzerInput['pub_x']);
-    var y = BigInt(FuzzerInput['pub_y']);
-    var r = BigInt(FuzzerInput['sig_r']);
-    var s = BigInt(FuzzerInput['sig_s']);
-
-    var verified = false;
-
-    var pub = new exports.Point(x, y);
-
-    try {
-        var signature = new exports.Signature(r, s);
-
-        verified = exports.verify(signature, msg, pub, { strict: false });
-    } catch ( e ) { }
-
-    FuzzerOutput = JSON.stringify(verified);
-
+function pointResult(result) {
+  if (!result.is0()) result.assertValidity();
+  const { x, y } = result.toAffine();
+  return JSON.stringify([x.toString(10), y.toString(10)]);
 }
 
-var OpECC_Point_Add = function(FuzzerInput) {
-    var a_x = BigInt(FuzzerInput['a_x']);
-    var a_y = BigInt(FuzzerInput['a_y']);
-
-    var b_x = BigInt(FuzzerInput['b_x']);
-    var b_y = BigInt(FuzzerInput['b_y']);
-
-    try {
-        var a = new exports.Point(a_x, a_y);
-        var b = new exports.Point(b_x, b_y);
-
-        a = JacobianPoint.fromAffine(a);
-
-        b = JacobianPoint.fromAffine(b);
-
-        var res = a.add(b).toAffine();
-
-        a.assertValidity();
-        b.assertValidity();
-        res.assertValidity();
-
-        FuzzerOutput = JSON.stringify([res.x.toString(), res.y.toString()]);
-    } catch ( e ) { }
+function OpECC_PrivateToPublic(input) {
+  try {
+    return pointResult(secp256k1.Point.fromBytes(secp256k1.getPublicKey(intToBytes(input.priv, 32))));
+  } catch (error) {
+    return;
+  }
 }
 
-var OpECC_Point_Mul = function(FuzzerInput) {
-    var x = BigInt(FuzzerInput['a_x']);
-    var y = BigInt(FuzzerInput['a_y']);
-    var b = BigInt(FuzzerInput['b']);
-
-    try {
-        var point = new exports.Point(x, y);
-
-        var res = JacobianPoint.fromAffine(point).multiplyUnsafe(b).toAffine();
-
-        point.assertValidity();
-
-        FuzzerOutput = JSON.stringify([res.x.toString(), res.y.toString()]);
-    } catch ( e ) { }
+function OpECDSA_Sign(input) {
+  try {
+    const secretKey = intToBytes(input.priv, 32);
+    const publicPoint = secp256k1.Point.fromBytes(secp256k1.getPublicKey(secretKey)).toAffine();
+    const signatureBytes = secp256k1.sign(hexToBytes(input.cleartext), secretKey, {
+      format: 'compact',
+      lowS: true,
+      prehash: false,
+    });
+    const signature = secp256k1.Signature.fromBytes(signatureBytes, 'compact');
+    return JSON.stringify({
+      signature: [signature.r.toString(10), signature.s.toString(10)],
+      pub: [publicPoint.x.toString(10), publicPoint.y.toString(10)],
+    });
+  } catch (error) {
+    return;
+  }
 }
 
-var OpECC_Point_Neg = function(FuzzerInput) {
-    var x = BigInt(FuzzerInput['a_x']);
-    var y = BigInt(FuzzerInput['a_y']);
-
-    try {
-        var point = new exports.Point(x, y);
-
-        var res = JacobianPoint.fromAffine(point).negate(b).toAffine();
-
-        FuzzerOutput = JSON.stringify([res.x.toString(), res.y.toString()]);
-    } catch ( e ) { }
+function OpECDSA_Verify(input) {
+  let verified = false;
+  try {
+    const publicKey = secp256k1.Point.fromAffine({
+      x: BigInt(input.pub_x),
+      y: BigInt(input.pub_y),
+    }).toBytes(false);
+    const signature = concatBytes(intToBytes(input.sig_r, 32), intToBytes(input.sig_s, 32));
+    verified = secp256k1.verify(signature, hexToBytes(input.cleartext), publicKey, {
+      format: 'compact',
+      lowS: false,
+      prehash: false,
+    });
+  } catch (error) {
+    verified = false;
+  }
+  return JSON.stringify(verified);
 }
 
-var OpECC_Point_Dbl = function(FuzzerInput) {
-    var x = BigInt(FuzzerInput['a_x']);
-    var y = BigInt(FuzzerInput['a_y']);
-
-    try {
-        var point = new exports.Point(x, y);
-
-        var res = JacobianPoint.fromAffine(point).double(b).toAffine();
-
-        FuzzerOutput = JSON.stringify([res.x.toString(), res.y.toString()]);
-    } catch ( e ) { }
+function OpECC_Point_Add(input) {
+  try {
+    return pointResult(point(input, 'a').add(point(input, 'b')));
+  } catch (error) {
+    return;
+  }
 }
 
-FuzzerInput = JSON.parse(FuzzerInput);
-var operation = BigInt(FuzzerInput['operation']);
-
-if ( IsECC_PrivateToPublic(operation) ) {
-    OpECC_PrivateToPublic(FuzzerInput);
-} else if ( IsECDSA_Sign(operation) ) {
-    FuzzerOutput = OpECDSA_Sign(FuzzerInput);
-} else if ( IsECDSA_Verify(operation) ) {
-    OpECDSA_Verify(FuzzerInput);
-} else if ( IsECC_Point_Add(operation) ) {
-    OpECC_Point_Add(FuzzerInput);
-} else if ( IsECC_Point_Mul(operation) ) {
-    OpECC_Point_Mul(FuzzerInput);
-} else if ( IsECC_Point_Neg(operation) ) {
-    OpECC_Point_Neg(FuzzerInput);
-} else if ( IsECC_Point_Dbl(operation) ) {
-    OpECC_Point_Dbl(FuzzerInput);
+function OpECC_Point_Mul(input) {
+  try {
+    return pointResult(point(input, 'a').multiply(BigInt(input.b)));
+  } catch (error) {
+    return;
+  }
 }
+
+function OpECC_Point_Neg(input) {
+  try {
+    return pointResult(point(input, 'a').negate());
+  } catch (error) {
+    return;
+  }
+}
+
+function OpECC_Point_Dbl(input) {
+  try {
+    return pointResult(point(input, 'a').double());
+  } catch (error) {
+    return;
+  }
+}
+
+const input = JSON.parse(FuzzerInput);
+const operation = BigInt(input.operation);
+
+if (ids.IsECC_PrivateToPublic(operation)) FuzzerOutput = OpECC_PrivateToPublic(input);
+else if (ids.IsECDSA_Sign(operation)) FuzzerOutput = OpECDSA_Sign(input);
+else if (ids.IsECDSA_Verify(operation)) FuzzerOutput = OpECDSA_Verify(input);
+else if (ids.IsECC_Point_Add(operation)) FuzzerOutput = OpECC_Point_Add(input);
+else if (ids.IsECC_Point_Mul(operation)) FuzzerOutput = OpECC_Point_Mul(input);
+else if (ids.IsECC_Point_Neg(operation)) FuzzerOutput = OpECC_Point_Neg(input);
+else if (ids.IsECC_Point_Dbl(operation)) FuzzerOutput = OpECC_Point_Dbl(input);

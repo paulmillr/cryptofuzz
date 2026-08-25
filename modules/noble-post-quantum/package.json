@@ -1,0 +1,19 @@
+{
+  "name": "cryptofuzz-noble-post-quantum",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.3.0",
+    "@noble/post-quantum": "0.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node test.mjs"
+  }
+}

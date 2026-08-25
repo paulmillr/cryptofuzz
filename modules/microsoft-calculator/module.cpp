@@ -5,7 +5,7 @@
 #include <codecvt>
 #include <locale>
 #include <iostream>
-#include "../../config.h"
+#include <cryptofuzz/config.h>
 
 namespace cryptofuzz {
 namespace module {

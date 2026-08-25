@@ -289,7 +289,8 @@ end:
 
                             if ( binConvert == true && BN_is_negative(bn) == 0 ) {
                                 const auto size = BN_num_bytes(bn);
-                                uint8_t* p = util::malloc(size);
+                                /* BN_bn2bin still requires a non-null destination for zero. */
+                                uint8_t* p = util::malloc(size == 0 ? 1 : size);
                                 const auto size2 = BN_bn2bin(bn, p);
                                 CF_ASSERT(size == size2, "BN_bn2bin size discrepancy");
                                 BIGNUM* newbn = BN_new();

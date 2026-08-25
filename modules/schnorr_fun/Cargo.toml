@@ -8,7 +8,7 @@ edition = "2018"
 crate-type = ["staticlib"]
 
 [dependencies]
-schnorr_fun = "0.6"
+schnorr_fun = { version = "0.6", default-features = false, features = ["std"] }
 sha2 = "0.9"
 rand = "0.8"
 libc = "0.2.0"

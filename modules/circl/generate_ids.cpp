@@ -33,5 +33,17 @@ int main(void)
         bnOpStr = std::regex_replace(bnOpStr, std::regex("\\(.*"), "");
         fprintf(fp, "func is%s(id Type) bool { return id == %s }\n", bnOpStr.c_str(), std::to_string(bnOp.first).c_str());
     }
+    for (const auto& kem : KEMLUTMap ) {
+        auto kemStr = std::string(kem.second.name);
+        kemStr = std::regex_replace(kemStr, std::regex("[./-]"), "_");
+        fprintf(fp, "const id%s Type = %s\n", kemStr.c_str(), std::to_string(kem.first).c_str());
+        fprintf(fp, "func is%s(id Type) bool { return id == %s }\n", kemStr.c_str(), std::to_string(kem.first).c_str());
+    }
+    for (const auto& signature : PQSIGLUTMap ) {
+        auto signatureStr = std::string(signature.second.name);
+        signatureStr = std::regex_replace(signatureStr, std::regex("[./-]"), "_");
+        fprintf(fp, "const id%s Type = %s\n", signatureStr.c_str(), std::to_string(signature.first).c_str());
+        fprintf(fp, "func is%s(id Type) bool { return id == %s }\n", signatureStr.c_str(), std::to_string(signature.first).c_str());
+    }
     fclose(fp);
 }

@@ -4276,7 +4276,7 @@ std::optional<component::ECC_Point> OpenSSL::OpECC_Point_Mul(operation::ECC_Poin
 
     CF_CHECK_EQ(b.Set(op.b.ToString(ds)), true);
 
-#if !defined(CRYPTOFUZZ_BORINGSSL)
+#if !defined(CRYPTOFUZZ_BORINGSSL) && !defined(CRYPTOFUZZ_LIBRESSL)
     {
         bool precompute = false;
         try {

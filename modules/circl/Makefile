@@ -1,3 +1,5 @@
+.PHONY: all clean test
+
 all: module.a cryptofuzz.a
 
 CXXFLAGS += -Wall -Wextra -std=c++17 -I ../../include -I ../../fuzzing-headers/include -DFUZZING_HEADERS_NO_IMPL
@@ -16,5 +18,7 @@ cryptofuzz.a: cryptofuzz.go ids.go
 	go build -o cryptofuzz.a -buildmode=c-archive cryptofuzz.go ids.go
 module.o: cryptofuzz.a module.cpp module.h
 	$(CXX) $(CXXFLAGS) -fPIC -c module.cpp -o module.o
+test: ids.go selftest.go
+	go run cryptofuzz.go ids.go selftest.go
 clean:
 	rm -rf *.o module.a cryptofuzz.a cryptofuzz.h generate_ids ids.go

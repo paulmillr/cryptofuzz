@@ -8,7 +8,9 @@ module.a: module.o
 	cd tmp/ && ar x ../cryptofuzz.a && ar rcs ../module.a *.o ../module.o
 	ranlib module.a
 	rm -rf tmp/
-generate_ids : generate_ids.cpp
+../../repository_map.h: ../../tools/gen_repository.py
+	$(MAKE) -C ../.. repository_map.h
+generate_ids : generate_ids.cpp ../../repository_map.h
 	$(CXX) $(CXXFLAGS) generate_ids.cpp -o generate_ids
 ids.go : generate_ids
 	./generate_ids

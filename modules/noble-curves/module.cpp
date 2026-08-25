@@ -37,6 +37,30 @@ std::optional<component::ECC_PublicKey> noble_curves::OpECC_PrivateToPublic(oper
     return ret;
 }
 
+std::optional<bool> noble_curves::OpECC_ValidatePubkey(operation::ECC_ValidatePubkey& op) {
+    std::optional<bool> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("ECC_ValidatePubkey"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = nlohmann::json::parse(*res).get<bool>();
+    }
+    return ret;
+}
+
+std::optional<component::Secret> noble_curves::OpECDH_Derive(operation::ECDH_Derive& op) {
+    std::optional<component::Secret> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("ECDH_Derive"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::Secret(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
 std::optional<component::ECDSA_Signature> noble_curves::OpECDSA_Sign(operation::ECDSA_Sign& op) {
     std::optional<component::ECDSA_Signature> ret = std::nullopt;
 
@@ -74,6 +98,46 @@ std::optional<bool> noble_curves::OpECDSA_Verify(operation::ECDSA_Verify& op) {
     return ret;
 }
 
+std::optional<component::ECC_PublicKey> noble_curves::OpECDSA_Recover(operation::ECDSA_Recover& op) {
+    std::optional<component::ECC_PublicKey> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("ECDSA_Recover"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::ECC_PublicKey(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
+std::optional<component::Schnorr_Signature> noble_curves::OpSchnorr_Sign(operation::Schnorr_Sign& op) {
+    std::optional<component::Schnorr_Signature> ret = std::nullopt;
+    if ( !op.UseBIP340Nonce() ) {
+        return ret;
+    }
+
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("Schnorr_Sign"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::Schnorr_Signature(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
+std::optional<bool> noble_curves::OpSchnorr_Verify(operation::Schnorr_Verify& op) {
+    std::optional<bool> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("Schnorr_Verify"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = nlohmann::json::parse(*res).get<bool>();
+    }
+    return ret;
+}
+
 std::optional<component::ECC_Point> noble_curves::OpECC_Point_Add(operation::ECC_Point_Add& op) {
     std::optional<component::ECC_Point> ret = std::nullopt;
 
@@ -87,6 +151,30 @@ std::optional<component::ECC_Point> noble_curves::OpECC_Point_Add(operation::ECC
         ret = component::ECC_Point(jsonRet);
     }
 
+    return ret;
+}
+
+std::optional<component::ECC_Point> noble_curves::OpECC_Point_Sub(operation::ECC_Point_Sub& op) {
+    std::optional<component::ECC_Point> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("ECC_Point_Sub"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::ECC_Point(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
+std::optional<bool> noble_curves::OpECC_Point_Cmp(operation::ECC_Point_Cmp& op) {
+    std::optional<bool> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("ECC_Point_Cmp"));
+
+    const auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = nlohmann::json::parse(*res).get<bool>();
+    }
     return ret;
 }
 
@@ -154,6 +242,18 @@ std::optional<component::BLS_PublicKey> noble_curves::OpBLS_PrivateToPublic(oper
     return ret;
 }
 
+std::optional<component::G2> noble_curves::OpBLS_PrivateToPublic_G2(operation::BLS_PrivateToPublic_G2& op) {
+    std::optional<component::G2> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_PrivateToPublic_G2"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::G2(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
 std::optional<component::G1> noble_curves::OpBLS_HashToG1(operation::BLS_HashToG1& op) {
     std::optional<component::G1> ret = std::nullopt;
 
@@ -183,6 +283,30 @@ std::optional<component::G2> noble_curves::OpBLS_HashToG2(operation::BLS_HashToG
         ret = component::G2(jsonRet);
     }
 
+    return ret;
+}
+
+std::optional<component::G1> noble_curves::OpBLS_MapToG1(operation::BLS_MapToG1& op) {
+    std::optional<component::G1> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_MapToG1"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::G1(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
+std::optional<component::G2> noble_curves::OpBLS_MapToG2(operation::BLS_MapToG2& op) {
+    std::optional<component::G2> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_MapToG2"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::G2(nlohmann::json::parse(*res));
+    }
     return ret;
 }
 
@@ -279,6 +403,30 @@ std::optional<bool> noble_curves::OpBLS_Verify(operation::BLS_Verify& op) {
         ret = bool(jsonRet);
     }
 
+    return ret;
+}
+
+std::optional<component::Fp12> noble_curves::OpBLS_Pairing(operation::BLS_Pairing& op) {
+    std::optional<component::Fp12> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_Pairing"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::Fp12(nlohmann::json::parse(*res));
+    }
+    return ret;
+}
+
+std::optional<component::Fp12> noble_curves::OpBLS_FinalExp(operation::BLS_FinalExp& op) {
+    std::optional<component::Fp12> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_FinalExp"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::Fp12(nlohmann::json::parse(*res));
+    }
     return ret;
 }
 
@@ -471,6 +619,18 @@ std::optional<component::G2> noble_curves::OpBLS_Aggregate_G2(operation::BLS_Agg
         ret = component::G2(jsonRet);
     }
 
+    return ret;
+}
+
+std::optional<component::G1> noble_curves::OpBLS_G1_MultiExp(operation::BLS_G1_MultiExp& op) {
+    std::optional<component::G1> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("BLS_G1_MultiExp"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+    if ( res != std::nullopt ) {
+        ret = component::G1(nlohmann::json::parse(*res));
+    }
     return ret;
 }
 
