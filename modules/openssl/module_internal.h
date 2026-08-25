@@ -68,7 +68,7 @@ class EC_GROUP_Copier {
             return EC_GROUP_new_by_curve_name(curveNID);
         }
 
-#if !defined(CRYPTOFUZZ_BORINGSSL)
+#if !defined(CRYPTOFUZZ_BORINGSSL) && !defined(CRYPTOFUZZ_LIBRESSL)
         int copyGroup(EC_GROUP* dest, EC_GROUP* src) {
             return EC_GROUP_copy(dest, src);
         }
@@ -84,7 +84,13 @@ class EC_GROUP_Copier {
             } catch ( fuzzing::datasource::Datasource::OutOfData& ) { }
 
             if ( doCopyGroup == true ) {
-#if !defined(CRYPTOFUZZ_BORINGSSL)
+#if defined(CRYPTOFUZZ_LIBRESSL)
+                EC_GROUP* tmpGroup = EC_GROUP_dup(group);
+                if ( tmpGroup != nullptr ) {
+                    freeGroup(group);
+                    group = tmpGroup;
+                }
+#elif !defined(CRYPTOFUZZ_BORINGSSL)
                 EC_GROUP* tmpGroup = newGroup();
                 if ( tmpGroup != nullptr ) {
                     if ( copyGroup(tmpGroup, group) == 1 ) {
@@ -196,7 +202,7 @@ class EC_POINT_Copier {
             char* x_str = nullptr;
             char* y_str = nullptr;
 
-#if defined(CRYPTOFUZZ_BORINGSSL)
+#if defined(CRYPTOFUZZ_BORINGSSL) || defined(CRYPTOFUZZ_LIBRESSL)
             (void)allowProjective;
             const bool projective = false;
 #else
@@ -223,7 +229,7 @@ class EC_POINT_Copier {
                 CF_CHECK_NE(EC_POINT_set_affine_coordinates_GFp(group->GetPtr(), GetPtr(), pub_x.GetPtr(), pub_y.GetPtr(), nullptr), 0);
 #endif
             } else {
-#if defined(CRYPTOFUZZ_BORINGSSL)
+#if defined(CRYPTOFUZZ_BORINGSSL) || defined(CRYPTOFUZZ_LIBRESSL)
                 CF_UNREACHABLE();
 #else
                 OpenSSL_bignum::Bignum x(ds);
@@ -267,7 +273,9 @@ end:
             bool ret = false;
 
             const bool is_prime_curve =
-#if defined(CRYPTOFUZZ_LIBRESSL) || defined(CRYPTOFUZZ_BORINGSSL) || defined(CRYPTOFUZZ_OPENSSL_102) || defined(CRYPTOFUZZ_OPENSSL_098)
+#if defined(CRYPTOFUZZ_LIBRESSL)
+                true
+#elif defined(CRYPTOFUZZ_BORINGSSL) || defined(CRYPTOFUZZ_OPENSSL_102) || defined(CRYPTOFUZZ_OPENSSL_098)
                 EC_METHOD_get_field_type(EC_GROUP_method_of(group->GetPtr()))
 #else
                 EC_GROUP_get_field_type(group->GetPtr())

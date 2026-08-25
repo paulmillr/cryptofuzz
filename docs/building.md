@@ -6,12 +6,24 @@ There are three main steps in building Cryptofuzz to begin fuzzing:
  2. Building Cryptographic Libraries and Cryptofuzz Modules
  3. Building Cryptofuzz
 
+For the maintained Noble configuration, the build script performs all three
+steps and links only the modules it built:
+
+```sh
+./build.sh noble  # Noble adapters only; quickest validation build
+./build.sh        # Noble plus the pinned native differential oracles
+./build.sh fast   # Reuse matching native build artifacts
+```
+
+See [dependencies.md](dependencies.md) for supported toolchains and pinned
+dependency revisions.
+
 ## 1. Generating Cryptofuzz Headers
 
 Run:
 
 ```sh
-./gen_repository.py
+./tools/gen_repository.py
 ```
 
 to generate look-up tables required for the compilation of Cryptofuzz.
@@ -29,7 +41,7 @@ libraries. Note that Cryptofuzz is built around differential fuzzing;
 having multiple libraries for a given primitive is helpful in finding
 bugs.
 
-Cryptofuzz uses `libfuzzer` and the related `-fsantize=fuzzer` flags
+Cryptofuzz uses `libfuzzer` and the related `-fsanitize=fuzzer` flags
 which are only supported by clang. If your machine's default compiler
 is not `clang` you will need to override the `CC` and `CXX` variables
 for building the cryptofuzz modules and cryptofuzz itself.
@@ -70,6 +82,8 @@ Available library-specific build instructions:
  - [crypto-js](crypto-js.md)
  - [sjcl](sjcl.md)
  - [Ring](ring.md)
+ - [noble cryptography](noble.md)
+ - [CIRCL](circl.md)
 
 ## 3. Building Cryptofuzz
 
@@ -84,4 +98,3 @@ Then, build Cryptofuzz:
 ```sh
 make
 ```
-

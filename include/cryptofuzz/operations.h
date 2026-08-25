@@ -3637,6 +3637,259 @@ class BLS_G1_MultiExp : public Operation {
         }
 };
 
+class KEM_KeyGen : public Operation {
+    public:
+        const component::KEMType kemType;
+        const component::PQSeed seed;
+
+        KEM_KeyGen(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            kemType(ds),
+            seed(ds)
+        { }
+        KEM_KeyGen(nlohmann::json json) :
+            Operation(json["modifier"]),
+            kemType(json["kemType"]),
+            seed(json["seed"])
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::KEMToString(kemType.Get());
+        }
+        inline bool operator==(const KEM_KeyGen& rhs) const {
+            return kemType == rhs.kemType && seed == rhs.seed && modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            kemType.Serialize(ds);
+            seed.Serialize(ds);
+        }
+};
+
+class KEM_Encapsulate : public Operation {
+    public:
+        const component::KEMType kemType;
+        const component::PQPublicKey publicKey;
+        const component::PQCoins coins;
+
+        KEM_Encapsulate(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            kemType(ds),
+            publicKey(ds),
+            coins(ds)
+        { }
+        KEM_Encapsulate(nlohmann::json json) :
+            Operation(json["modifier"]),
+            kemType(json["kemType"]),
+            publicKey(json["publicKey"]),
+            coins(json["coins"])
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::KEMToString(kemType.Get());
+        }
+        inline bool operator==(const KEM_Encapsulate& rhs) const {
+            return kemType == rhs.kemType && publicKey == rhs.publicKey &&
+                coins == rhs.coins && modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            kemType.Serialize(ds);
+            publicKey.Serialize(ds);
+            coins.Serialize(ds);
+        }
+};
+
+class KEM_Decapsulate : public Operation {
+    public:
+        const component::KEMType kemType;
+        const component::PQSecretKey secretKey;
+        const component::KEMCiphertext ciphertext;
+
+        KEM_Decapsulate(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            kemType(ds),
+            secretKey(ds),
+            ciphertext(ds)
+        { }
+        KEM_Decapsulate(nlohmann::json json) :
+            Operation(json["modifier"]),
+            kemType(json["kemType"]),
+            secretKey(json["secretKey"]),
+            ciphertext(json["ciphertext"])
+        { }
+        KEM_Decapsulate(component::KEMType kemType,
+                        component::PQSecretKey secretKey,
+                        component::KEMCiphertext ciphertext,
+                        component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            kemType(std::move(kemType)),
+            secretKey(std::move(secretKey)),
+            ciphertext(std::move(ciphertext))
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::KEMToString(kemType.Get());
+        }
+        inline bool operator==(const KEM_Decapsulate& rhs) const {
+            return kemType == rhs.kemType && secretKey == rhs.secretKey &&
+                ciphertext == rhs.ciphertext && modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            kemType.Serialize(ds);
+            secretKey.Serialize(ds);
+            ciphertext.Serialize(ds);
+        }
+};
+
+class PQSIG_KeyGen : public Operation {
+    public:
+        const component::PQSignatureType pqSignatureType;
+        const component::PQSeed seed;
+
+        PQSIG_KeyGen(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            pqSignatureType(ds),
+            seed(ds)
+        { }
+        PQSIG_KeyGen(nlohmann::json json) :
+            Operation(json["modifier"]),
+            pqSignatureType(json["pqSignatureType"]),
+            seed(json["seed"])
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::PQSIGToString(pqSignatureType.Get());
+        }
+        inline bool operator==(const PQSIG_KeyGen& rhs) const {
+            return pqSignatureType == rhs.pqSignatureType && seed == rhs.seed &&
+                modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            pqSignatureType.Serialize(ds);
+            seed.Serialize(ds);
+        }
+};
+
+class PQSIG_Sign : public Operation {
+    public:
+        const component::PQSignatureType pqSignatureType;
+        const component::PQSecretKey secretKey;
+        const component::PQMessage message;
+        const component::PQContext context;
+        const component::PQExtraEntropy extraEntropy;
+
+        PQSIG_Sign(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            pqSignatureType(ds),
+            secretKey(ds),
+            message(ds),
+            context(ds),
+            extraEntropy(ds)
+        { }
+        PQSIG_Sign(nlohmann::json json) :
+            Operation(json["modifier"]),
+            pqSignatureType(json["pqSignatureType"]),
+            secretKey(json["secretKey"]),
+            message(json["message"]),
+            context(json["context"]),
+            extraEntropy(json["extraEntropy"])
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::PQSIGToString(pqSignatureType.Get());
+        }
+        inline bool operator==(const PQSIG_Sign& rhs) const {
+            return pqSignatureType == rhs.pqSignatureType && secretKey == rhs.secretKey &&
+                message == rhs.message && context == rhs.context &&
+                extraEntropy == rhs.extraEntropy && modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            pqSignatureType.Serialize(ds);
+            secretKey.Serialize(ds);
+            message.Serialize(ds);
+            context.Serialize(ds);
+            extraEntropy.Serialize(ds);
+        }
+};
+
+class PQSIG_Verify : public Operation {
+    public:
+        const component::PQSignatureType pqSignatureType;
+        const component::PQPublicKey publicKey;
+        const component::PQMessage message;
+        const component::PQSignature signature;
+        const component::PQContext context;
+
+        PQSIG_Verify(Datasource& ds, component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            pqSignatureType(ds),
+            publicKey(ds),
+            message(ds),
+            signature(ds),
+            context(ds)
+        { }
+        PQSIG_Verify(nlohmann::json json) :
+            Operation(json["modifier"]),
+            pqSignatureType(json["pqSignatureType"]),
+            publicKey(json["publicKey"]),
+            message(json["message"]),
+            signature(json["signature"]),
+            context(json["context"])
+        { }
+        PQSIG_Verify(component::PQSignatureType pqSignatureType,
+                     component::PQPublicKey publicKey,
+                     component::PQMessage message,
+                     component::PQSignature signature,
+                     component::PQContext context,
+                     component::Modifier modifier) :
+            Operation(std::move(modifier)),
+            pqSignatureType(std::move(pqSignatureType)),
+            publicKey(std::move(publicKey)),
+            message(std::move(message)),
+            signature(std::move(signature)),
+            context(std::move(context))
+        { }
+
+        static size_t MaxOperations(void) { return 1; }
+        std::string Name(void) const override;
+        std::string ToString(void) const override;
+        nlohmann::json ToJSON(void) const override;
+        std::string GetAlgorithmString(void) const override {
+            return repository::PQSIGToString(pqSignatureType.Get());
+        }
+        inline bool operator==(const PQSIG_Verify& rhs) const {
+            return pqSignatureType == rhs.pqSignatureType && publicKey == rhs.publicKey &&
+                message == rhs.message && signature == rhs.signature &&
+                context == rhs.context && modifier == rhs.modifier;
+        }
+        void Serialize(Datasource& ds) const {
+            pqSignatureType.Serialize(ds);
+            publicKey.Serialize(ds);
+            message.Serialize(ds);
+            signature.Serialize(ds);
+            context.Serialize(ds);
+        }
+};
+
 class Misc : public Operation {
     public:
         const Type operation;

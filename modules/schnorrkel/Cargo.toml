@@ -8,4 +8,4 @@ edition = "2018"
 crate-type = ["staticlib"]
 
 [dependencies]
-schnorrkel = { git = "https://github.com/w3f/schnorrkel" }
+schnorrkel = "0.11.5"

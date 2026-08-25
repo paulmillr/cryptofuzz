@@ -1,83 +1,60 @@
-/* Simple emulation of subtle crypto using crypto-js */
-crypto.web = {};
-crypto.web.subtle = {};
-crypto.web.subtle.digest = function(alg, msg) {
-    var hasher = CryptoJS.algo.SHA512.create();
-    msg = new Uint8Array(msg);
-    msg = [...msg].map(x => x.toString(16).padStart(2, '0')).join('');
-    msg = CryptoJS.enc.Hex.parse(msg);
-    hasher.update(msg);
-    var ret = hasher.finalize().toString()
-    ret = new Uint8Array(ret.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-    return ret;
+import * as ed25519 from '@noble/ed25519';
+import { sha512 } from '@noble/hashes/sha2.js';
+import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';
+import * as ids from './ids.js';
+
+ed25519.hashes.sha512 = sha512;
+
+function bytesToInt(bytes) {
+  const hex = bytesToHex(bytes);
+  return hex.length === 0 ? '0' : BigInt(`0x${hex}`).toString(10);
 }
 
-var OpECC_PrivateToPublic = async function(FuzzerInput) {
-    var priv = BigInt(FuzzerInput['priv']);
-
-    var pub = await exports.getPublicKey(priv);
-    pub = [...pub].map(x => x.toString(16).padStart(2, '0')).join('');
-    pub = BigInt('0x'.concat(pub)).toString(10);
-
-    FuzzerOutput = JSON.stringify([pub, "0"]);
+function intToBytes(value, length) {
+  const number = BigInt(value);
+  if (number < 0n) throw new RangeError('negative integer');
+  const hex = number.toString(16);
+  if (hex.length > length * 2) throw new RangeError('integer does not fit');
+  return hexToBytes(hex.padStart(length * 2, '0'));
 }
 
-var OpECDSA_Sign = async function(FuzzerInput) {
-    var msg = FuzzerInput['cleartext'];
-    var priv = BigInt(FuzzerInput['priv']);
-
-    var signature = await exports.sign(msg, priv, {canonical : true});
-
-    var r = signature.slice(0, 64);
-    r = BigInt('0x'.concat(r)).toString(10);
-
-    var s = signature.slice(64, 128);
-    s = BigInt('0x'.concat(s)).toString(10);
-
-    var pub = await exports.getPublicKey(priv);
-    pub = [...pub].map(x => x.toString(16).padStart(2, '0')).join('');
-    pub = BigInt('0x'.concat(pub)).toString(10);
-
-    FuzzerOutput = JSON.stringify({
-        'signature' : [r, s],
-        'pub' : [pub.toString(), '0']});
+function OpECC_PrivateToPublic(input) {
+  try {
+    return JSON.stringify([bytesToInt(ed25519.getPublicKey(intToBytes(input.priv, 32))), '0']);
+  } catch (error) {
+    return;
+  }
 }
 
-var OpECDSA_Verify = async function(FuzzerInput) {
-    var msg = FuzzerInput['cleartext'];
-    var x = BigInt(FuzzerInput['pub_x']);
-    var y = BigInt(FuzzerInput['pub_y']);
-    var r = BigInt(FuzzerInput['sig_r']);
-    var s = BigInt(FuzzerInput['sig_s']);
-
-    x = x.toString(16);
-    x = '0'.repeat(64 - x.length) + x;
-
-    r = r.toString(16);
-    r = '0'.repeat(64 - r.length) + r;
-
-    s = s.toString(16);
-    s = '0'.repeat(64 - s.length) + s;
-
-    var pub = exports.Point.fromHex(x);
-    var signature = exports.Signature.fromHex(r + s);
-
-    var verified = false;
-
-    try {
-        verified = await exports.verify(signature, msg, pub);
-    } catch ( e ) { }
-
-    FuzzerOutput = JSON.stringify(verified);
+function OpECDSA_Sign(input) {
+  try {
+    const secretKey = intToBytes(input.priv, 32);
+    const publicKey = ed25519.getPublicKey(secretKey);
+    const signature = ed25519.sign(hexToBytes(input.cleartext), secretKey);
+    return JSON.stringify({
+      signature: [bytesToInt(signature.subarray(0, 32)), bytesToInt(signature.subarray(32))],
+      pub: [bytesToInt(publicKey), '0'],
+    });
+  } catch (error) {
+    return;
+  }
 }
 
-FuzzerInput = JSON.parse(FuzzerInput);
-var operation = BigInt(FuzzerInput['operation']);
-
-if ( IsECC_PrivateToPublic(operation) ) {
-    OpECC_PrivateToPublic(FuzzerInput);
-} else if ( IsECDSA_Sign(operation) ) {
-    OpECDSA_Sign(FuzzerInput);
-} else if ( IsECDSA_Verify(operation) ) {
-    OpECDSA_Verify(FuzzerInput);
+function OpECDSA_Verify(input) {
+  let verified = false;
+  try {
+    const signature = concatBytes(intToBytes(input.sig_r, 32), intToBytes(input.sig_s, 32));
+    const publicKey = intToBytes(input.pub_x, 32);
+    verified = ed25519.verify(signature, hexToBytes(input.cleartext), publicKey);
+  } catch (error) {
+    verified = false;
+  }
+  return JSON.stringify(verified);
 }
+
+const input = JSON.parse(FuzzerInput);
+const operation = BigInt(input.operation);
+
+if (ids.IsECC_PrivateToPublic(operation)) FuzzerOutput = OpECC_PrivateToPublic(input);
+else if (ids.IsECDSA_Sign(operation)) FuzzerOutput = OpECDSA_Sign(input);
+else if (ids.IsECDSA_Verify(operation)) FuzzerOutput = OpECDSA_Verify(input);

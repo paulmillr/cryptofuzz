@@ -30,7 +30,7 @@ std::optional<nlohmann::json> Golang::getJsonResult(void) const {
 
     try {
         return nlohmann::json::parse(getResult());
-    } catch ( std::exception e ) {
+    } catch ( const std::exception& e ) {
         /* Must always parse correctly non-empty strings */
         abort();
     }

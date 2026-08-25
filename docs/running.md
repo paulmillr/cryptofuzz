@@ -20,7 +20,7 @@ corpus, but be warned, this may generate a lot of small files taking up lots
 of inodes!
 
 ## Cryptofuzz specific command-line arguments
-There are a number of options to customize your fuzzing run defined in [options.cpp](options.cpp).
+There are a number of options to customize your fuzzing run defined in [options.cpp](../src/options.cpp).
 
 
 ```

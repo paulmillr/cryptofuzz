@@ -1,0 +1,197 @@
+name: Fuzz Noble commit
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Noble git ref or commit to fuzz (defaults to the caller's commit)
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ github.event.repository.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out Noble commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.ref || github.sha }}
+          path: noble-source
+          persist-credentials: false
+
+      - name: Check out Cryptofuzz
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: cryptofuzz
+          persist-credentials: false
+
+      - name: Select Noble adapter
+        id: project
+        env:
+          ADAPTERS_ROOT: ${{ github.workspace }}/cryptofuzz/modules
+          NOBLE_SOURCE_ROOT: ${{ github.workspace }}/noble-source
+          PROJECT_NAME: ${{ github.event.repository.name }}
+        run: |
+          if [[ ! "$PROJECT_NAME" =~ ^noble-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Unsupported caller repository name: $PROJECT_NAME" >&2
+            exit 1
+          fi
+
+          module_dir="$ADAPTERS_ROOT/$PROJECT_NAME"
+          for required_file in package.json package-lock.json Makefile build.mjs; do
+            if [[ ! -f "$module_dir/$required_file" ]]; then
+              echo "No complete Cryptofuzz Noble adapter exists for $PROJECT_NAME" >&2
+              exit 1
+            fi
+          done
+
+          expected_package="@noble/${PROJECT_NAME#noble-}"
+          ADAPTER_PACKAGE_JSON="$module_dir/package.json" \
+          EXPECTED_ADAPTER_NAME="cryptofuzz-$PROJECT_NAME" \
+          EXPECTED_SOURCE_PACKAGE="$expected_package" \
+          SOURCE_PACKAGE_JSON="$NOBLE_SOURCE_ROOT/package.json" \
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          def read_package(path):
+              try:
+                  with open(path, encoding='utf-8') as package_file:
+                      return json.load(package_file)
+              except (OSError, json.JSONDecodeError) as error:
+                  raise SystemExit(f'Cannot read package manifest {path}: {error}')
+
+          adapter = read_package(os.environ['ADAPTER_PACKAGE_JSON'])
+          source = read_package(os.environ['SOURCE_PACKAGE_JSON'])
+          expected_adapter = os.environ['EXPECTED_ADAPTER_NAME']
+          expected_source = os.environ['EXPECTED_SOURCE_PACKAGE']
+
+          if adapter.get('name') != expected_adapter:
+              sys.exit(f'Adapter package name must be {expected_adapter}')
+          if expected_source not in adapter.get('dependencies', {}):
+              sys.exit(f'{expected_adapter} does not depend on {expected_source}')
+          if source.get('name') != expected_source:
+              sys.exit(f'Caller package name must be {expected_source}')
+          PY
+
+          echo "module=$PROJECT_NAME" >> "$GITHUB_OUTPUT"
+          echo "source_package=$expected_package" >> "$GITHUB_OUTPUT"
+          if [[ "$PROJECT_NAME" == noble-post-quantum ]]; then
+            echo "max_len=65536" >> "$GITHUB_OUTPUT"
+          else
+            echo "max_len=4096" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Selected $PROJECT_NAME for $expected_package"
+
+      - name: Record Noble revision
+        id: source
+        working-directory: noble-source
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Fuzz target: $source_sha"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: cryptofuzz/.node-version
+          cache: npm
+          cache-dependency-path: |
+            noble-source/package-lock.json
+            cryptofuzz/modules/${{ steps.project.outputs.module }}/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libboost-dev
+
+      - name: Build Noble commit
+        working-directory: noble-source
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test selected adapter
+        working-directory: cryptofuzz
+        env:
+          NOBLE_MODULE: ${{ steps.project.outputs.module }}
+          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
+        run: |
+          make -C "modules/$NOBLE_MODULE" ids.js
+          npm --prefix "modules/$NOBLE_MODULE" ci
+          npm --prefix "modules/$NOBLE_MODULE" test
+
+      - name: Build selected fuzzer
+        working-directory: cryptofuzz
+        env:
+          NOBLE_MODULE: ${{ steps.project.outputs.module }}
+          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
+        run: ./build.sh noble
+
+      - name: Generate random seed
+        id: seed
+        shell: bash
+        run: |
+          seed="$(od -An -N4 -tu4 /dev/urandom)"
+          seed="${seed//[[:space:]]/}"
+          if [[ "$seed" == 0 ]]; then
+            seed=1
+          fi
+          echo "value=$seed" >> "$GITHUB_OUTPUT"
+          echo "Using libFuzzer seed $seed"
+
+      - name: Fuzz for two hours
+        working-directory: cryptofuzz
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          FUZZ_MAX_LEN: ${{ steps.project.outputs.max_len }}
+          FUZZ_SEED: ${{ steps.seed.outputs.value }}
+          NOBLE_MODULE: ${{ steps.project.outputs.module }}
+          NOBLE_REPOSITORY: ${{ github.repository }}
+          NOBLE_SOURCE_PACKAGE: ${{ steps.project.outputs.source_package }}
+          NOBLE_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          mkdir -p fuzz-artifacts fuzz-corpus
+          echo "Fuzzing $NOBLE_MODULE at $NOBLE_SOURCE_SHA with seed $FUZZ_SEED" | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo "repository=$NOBLE_REPOSITORY"
+            echo "source_package=$NOBLE_SOURCE_PACKAGE"
+            echo "source_sha=$NOBLE_SOURCE_SHA"
+            echo "module=$NOBLE_MODULE"
+            echo "seed=$FUZZ_SEED"
+            echo "max_total_time=7200"
+            echo "max_len=$FUZZ_MAX_LEN"
+            echo "per_input_timeout=600"
+          } > fuzz-artifacts/run-metadata.txt
+          # Sanitized QuickJS needs more than a minute for valid high-memory
+          # Argon2 and expensive PQ inputs, so keep this watchdog above them.
+          ./cryptofuzz fuzz-corpus \
+            "-seed=$FUZZ_SEED" \
+            -max_total_time=7200 \
+            "-max_len=$FUZZ_MAX_LEN" \
+            -timeout=600 \
+            -print_final_stats=1 \
+            -artifact_prefix=fuzz-artifacts/ \
+            "--force-module=$NOBLE_MODULE"
+
+      - name: Upload fuzzing artifacts and corpus
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.project.outputs.module }}-${{ steps.source.outputs.sha }}-${{ github.run_attempt }}
+          path: |
+            cryptofuzz/fuzz-artifacts/
+            cryptofuzz/fuzz-corpus/
+          if-no-files-found: ignore
+          retention-days: 14

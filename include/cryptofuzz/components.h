@@ -14,6 +14,8 @@ using DigestType = Type;
 using KDFType = Type;
 using CurveType = Type;
 using CalcOp = Type;
+using KEMType = Type;
+using PQSignatureType = Type;
 
 using Modifier = Buffer;
 using Cleartext = Buffer;
@@ -30,9 +32,61 @@ using PrivateKeyPEM = Buffer;
 using Tag = Buffer;
 using AAD = Buffer;
 using Secret = Buffer;
+using PQPublicKey = Buffer;
+using PQSecretKey = Buffer;
+using PQSeed = Buffer;
+using PQCoins = Buffer;
+using PQExtraEntropy = Buffer;
+using PQContext = Buffer;
+using PQMessage = Buffer;
+using KEMCiphertext = Buffer;
+using SharedSecret = Buffer;
+using PQSignature = Buffer;
 
 using ECC_PrivateKey = Bignum;
 using Bignum = ::cryptofuzz::Bignum;
+
+class KEMKeyPair {
+    public:
+        PQPublicKey publicKey;
+        PQSecretKey secretKey;
+
+        KEMKeyPair(Datasource& ds);
+        KEMKeyPair(PQPublicKey publicKey, PQSecretKey secretKey);
+        KEMKeyPair(nlohmann::json json);
+
+        bool operator==(const KEMKeyPair& rhs) const;
+        void Serialize(Datasource& ds) const;
+        nlohmann::json ToJSON(void) const;
+};
+
+class KEMEncapsulation {
+    public:
+        KEMCiphertext ciphertext;
+        SharedSecret sharedSecret;
+
+        KEMEncapsulation(Datasource& ds);
+        KEMEncapsulation(KEMCiphertext ciphertext, SharedSecret sharedSecret);
+        KEMEncapsulation(nlohmann::json json);
+
+        bool operator==(const KEMEncapsulation& rhs) const;
+        void Serialize(Datasource& ds) const;
+        nlohmann::json ToJSON(void) const;
+};
+
+class PQSignatureKeyPair {
+    public:
+        PQPublicKey publicKey;
+        PQSecretKey secretKey;
+
+        PQSignatureKeyPair(Datasource& ds);
+        PQSignatureKeyPair(PQPublicKey publicKey, PQSecretKey secretKey);
+        PQSignatureKeyPair(nlohmann::json json);
+
+        bool operator==(const PQSignatureKeyPair& rhs) const;
+        void Serialize(Datasource& ds) const;
+        nlohmann::json ToJSON(void) const;
+};
 
 class SymmetricCipher {
     public:

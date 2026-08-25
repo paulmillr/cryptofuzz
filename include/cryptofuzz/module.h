@@ -40,6 +40,30 @@ class Module {
             (void)op;
             return std::nullopt;
         }
+        virtual std::optional<component::KEMKeyPair> OpKEM_KeyGen(operation::KEM_KeyGen& op) {
+            (void)op;
+            return std::nullopt;
+        }
+        virtual std::optional<component::KEMEncapsulation> OpKEM_Encapsulate(operation::KEM_Encapsulate& op) {
+            (void)op;
+            return std::nullopt;
+        }
+        virtual std::optional<component::SharedSecret> OpKEM_Decapsulate(operation::KEM_Decapsulate& op) {
+            (void)op;
+            return std::nullopt;
+        }
+        virtual std::optional<component::PQSignatureKeyPair> OpPQSIG_KeyGen(operation::PQSIG_KeyGen& op) {
+            (void)op;
+            return std::nullopt;
+        }
+        virtual std::optional<component::PQSignature> OpPQSIG_Sign(operation::PQSIG_Sign& op) {
+            (void)op;
+            return std::nullopt;
+        }
+        virtual std::optional<bool> OpPQSIG_Verify(operation::PQSIG_Verify& op) {
+            (void)op;
+            return std::nullopt;
+        }
         virtual std::optional<component::Key> OpKDF_SCRYPT(operation::KDF_SCRYPT& op) {
             (void)op;
             return std::nullopt;

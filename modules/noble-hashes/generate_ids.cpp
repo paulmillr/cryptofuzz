@@ -8,13 +8,13 @@
 int main(void) {
     for (const auto item : OperationLUTMap ) {
         std::string name = item.second.name;
-        printf("var Is%s = function(id) { return id == BigInt(\"%zu\"); }\n", name.c_str(), item.first);
+        printf("export const Is%s = function(id) { return id == BigInt(\"%zu\"); }\n", name.c_str(), item.first);
     }
     for (const auto item : DigestLUTMap ) {
         std::string name = item.second.name;
         std::replace(name.begin(), name.end(), '-', '_');
         std::replace(name.begin(), name.end(), '.', '_');
-        printf("var Is%s = function(id) { return id == BigInt(\"%zu\"); }\n", name.c_str(), item.first);
+        printf("export const Is%s = function(id) { return id == BigInt(\"%zu\"); }\n", name.c_str(), item.first);
     }
 
     return 0;

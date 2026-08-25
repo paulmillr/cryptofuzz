@@ -1,0 +1,19 @@
+{
+  "name": "cryptofuzz-noble-ed25519",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@noble/ed25519": "3.1.0",
+    "@noble/hashes": "2.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node test.mjs"
+  }
+}

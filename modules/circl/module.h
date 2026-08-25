@@ -38,6 +38,12 @@ class circl : public Module {
         std::optional<component::G1> OpBLS_Decompress_G1(operation::BLS_Decompress_G1& op) override;
         std::optional<component::Bignum> OpBLS_Compress_G1(operation::BLS_Compress_G1& op) override;
         std::optional<component::Fp12> OpBLS_Pairing(operation::BLS_Pairing& op) override;
+        std::optional<component::KEMKeyPair> OpKEM_KeyGen(operation::KEM_KeyGen& op) override;
+        std::optional<component::KEMEncapsulation> OpKEM_Encapsulate(operation::KEM_Encapsulate& op) override;
+        std::optional<component::SharedSecret> OpKEM_Decapsulate(operation::KEM_Decapsulate& op) override;
+        std::optional<component::PQSignatureKeyPair> OpPQSIG_KeyGen(operation::PQSIG_KeyGen& op) override;
+        std::optional<component::PQSignature> OpPQSIG_Sign(operation::PQSIG_Sign& op) override;
+        std::optional<bool> OpPQSIG_Verify(operation::PQSIG_Verify& op) override;
         bool SupportsModularBignumCalc(void) const override;
 };
 

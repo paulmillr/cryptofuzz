@@ -26,7 +26,7 @@ namespace noble_hashes_detail {
         bool toParts  = false;
         try {
             toParts = ds.Get<bool>();
-        } catch ( fuzzing::datasource::Datasource::OutOfData ) { }
+        } catch ( const fuzzing::datasource::Datasource::OutOfData& ) { }
 
         if ( toParts == false ) {
             return std::nullopt;
@@ -106,6 +106,36 @@ std::optional<component::Key> noble_hashes::OpKDF_PBKDF2(operation::KDF_PBKDF2& 
     std::optional<component::Key> ret = std::nullopt;
     auto json = op.ToJSON();
     json["operation"] = std::to_string(CF_OPERATION("KDF_PBKDF2"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+
+    if ( res != std::nullopt ) {
+        auto jsonRet = nlohmann::json::parse(*res);
+        ret = component::Key(jsonRet);
+    }
+
+    return ret;
+}
+
+std::optional<component::Key> noble_hashes::OpKDF_SCRYPT(operation::KDF_SCRYPT& op) {
+    std::optional<component::Key> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("KDF_SCRYPT"));
+
+    auto res = ((JS*)js)->Run(json.dump());
+
+    if ( res != std::nullopt ) {
+        auto jsonRet = nlohmann::json::parse(*res);
+        ret = component::Key(jsonRet);
+    }
+
+    return ret;
+}
+
+std::optional<component::Key> noble_hashes::OpKDF_ARGON2(operation::KDF_ARGON2& op) {
+    std::optional<component::Key> ret = std::nullopt;
+    auto json = op.ToJSON();
+    json["operation"] = std::to_string(CF_OPERATION("KDF_ARGON2"));
 
     auto res = ((JS*)js)->Run(json.dump());
 
