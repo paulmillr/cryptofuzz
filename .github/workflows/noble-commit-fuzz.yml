@@ -34,14 +34,21 @@ jobs:
           path: cryptofuzz
           persist-credentials: false
 
-      - name: Select Noble adapter
+      - name: Select Noble fuzzer
         id: project
         working-directory: cryptofuzz
         env:
           ADAPTERS_ROOT: ${{ github.workspace }}/cryptofuzz/modules
+          NOBLEFUZZ_ROOT: ${{ github.workspace }}/cryptofuzz/noblefuzz
           NOBLE_SOURCE_ROOT: ${{ github.workspace }}/noble-source
           PROJECT_NAME: ${{ github.event.repository.name }}
-        run: ./tools/select-noble-adapter.py
+        run: |
+          if [[ "$PROJECT_NAME" == "noble-hashes" || "$PROJECT_NAME" == "noble-ciphers" || "$PROJECT_NAME" == "noble-curves" || "$PROJECT_NAME" == "noble-post-quantum" ]]; then
+            node ./noblefuzz/select-project.mjs
+          else
+            ./tools/select-noble-adapter.py
+            echo "engine=cryptofuzz" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Record Noble revision
         id: source
@@ -59,8 +66,10 @@ jobs:
           cache-dependency-path: |
             noble-source/package-lock.json
             cryptofuzz/modules/${{ steps.project.outputs.module }}/package-lock.json
+            cryptofuzz/noblefuzz/package-lock.json
 
       - name: Install build dependencies
+        if: steps.project.outputs.engine == 'cryptofuzz'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libboost-dev
@@ -72,6 +81,7 @@ jobs:
           npm run build
 
       - name: Test selected adapter
+        if: steps.project.outputs.engine == 'cryptofuzz'
         working-directory: cryptofuzz
         env:
           NOBLE_MODULE: ${{ steps.project.outputs.module }}
@@ -81,7 +91,19 @@ jobs:
           npm --prefix "modules/$NOBLE_MODULE" ci
           npm --prefix "modules/$NOBLE_MODULE" test
 
+      - name: Install and test noblefuzz
+        if: steps.project.outputs.engine == 'noblefuzz'
+        working-directory: cryptofuzz
+        env:
+          NOBLE_PROJECT: ${{ steps.project.outputs.module }}
+          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
+        run: |
+          npm --prefix noblefuzz ci
+          env -u NOBLE_SOURCE_DIR npm --prefix noblefuzz test
+          node noblefuzz/test-project.mjs "$NOBLE_PROJECT"
+
       - name: Build selected fuzzer
+        if: steps.project.outputs.engine == 'cryptofuzz'
         working-directory: cryptofuzz
         env:
           NOBLE_MODULE: ${{ steps.project.outputs.module }}
@@ -98,9 +120,24 @@ jobs:
             seed=1
           fi
           echo "value=$seed" >> "$GITHUB_OUTPUT"
-          echo "Using libFuzzer seed $seed"
+          echo "Using fuzzing seed $seed"
 
-      - name: Fuzz for two hours
+      - name: Fuzz with noblefuzz for two hours
+        if: steps.project.outputs.engine == 'noblefuzz'
+        working-directory: cryptofuzz
+        env:
+          FUZZ_MAX_LEN: ${{ steps.project.outputs.max_len }}
+          FUZZ_SEED: ${{ steps.seed.outputs.value }}
+          NOBLEFUZZ_WORKERS: auto
+          NOBLE_MODULE: ${{ steps.project.outputs.module }}
+          NOBLE_REPOSITORY: ${{ github.repository }}
+          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
+          NOBLE_SOURCE_PACKAGE: ${{ steps.project.outputs.source_package }}
+          NOBLE_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: ./noblefuzz/run.sh
+
+      - name: Fuzz with Cryptofuzz for two hours
+        if: steps.project.outputs.engine == 'cryptofuzz'
         working-directory: cryptofuzz
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
@@ -121,6 +158,8 @@ jobs:
           path: |
             cryptofuzz/fuzz-artifacts/
             cryptofuzz/fuzz-corpus/
+            cryptofuzz/fuzz-corpus-digest/
+            cryptofuzz/fuzz-corpus-kdfs/
             cryptofuzz/fuzz-corpus-argon2/
             cryptofuzz/fuzz-corpus-pairing/
             cryptofuzz/fuzz-corpus-slh-dsa/

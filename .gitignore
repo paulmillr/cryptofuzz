@@ -7,6 +7,9 @@ leak-*
 oom-*
 slow-unit-*
 timeout-*
+/fuzz-corpus*/
+/fuzz-artifacts*/
+/noblefuzz/mutation-report.json
 modules/*/*.a
 repository_map.h
 repository_tbl.h

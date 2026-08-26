@@ -311,7 +311,7 @@ class KDF_SCRYPT : public Operation {
             salt(ds),
             N(ds.Get<uint64_t>() % 5),
             r(ds.Get<uint64_t>() % 9),
-            p(ds.Get<uint64_t>() % 5),
+            p(((ds.Get<uint64_t>() + 3) % 4) + 1),
             keySize(ds.Get<uint64_t>() % 1024)
         { }
         KDF_SCRYPT(nlohmann::json json) :
@@ -597,7 +597,7 @@ class KDF_ARGON2 : public Operation {
             password(ds),
             salt(ds),
             type(ds.Get<uint8_t>()),
-            threads(ds.Get<uint8_t>()),
+            threads(((ds.Get<uint8_t>() + 3) % 4) + 1),
             memory(ds.Get<uint32_t>() % (64*1024)),
             iterations(ds.Get<uint32_t>() % 3),
             keySize(ds.Get<uint32_t>() % 1024)

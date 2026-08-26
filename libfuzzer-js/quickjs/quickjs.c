@@ -726,6 +726,21 @@ typedef struct JSFunctionBytecode {
     } debug;
 } JSFunctionBytecode;
 
+/*
+ * Expose JavaScript control-flow coverage to libFuzzer without instrumenting
+ * every bytecode dispatch. Function entries and branch destinations are the
+ * beginnings of bytecode basic blocks, which retain the useful coverage
+ * signal while avoiding a counter update for every hashing-loop instruction.
+ */
+static inline void libfuzzer_trace_bytecode_block(
+        const JSFunctionBytecode *b,
+        const uint8_t *pc)
+{
+    uint32_t index = ((uint32_t)(b->func_name & 0xffff) ^ 0xabcd) * 16777619U;
+    index ^= (uint32_t)(pc - b->byte_code_buf) * 2166136261U;
+    libfuzzer_bytecode_counter[index % sizeof(libfuzzer_bytecode_counter)]++;
+}
+
 typedef struct JSBoundFunction {
     JSValue func_obj;
     JSValue this_val;
@@ -17879,18 +17894,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     ctx = b->realm; /* set the current realm */
 
  restart:
+    libfuzzer_trace_bytecode_block(b, pc);
     for(;;) {
         int call_argc;
         JSValue *call_argv;
 
-        {
-            uint32_t index = 0;
-            index += ((uint32_t)((b->func_name & 0xffff) ^ 0xabcd) << 16);
-            index += (uint32_t)(pc - b->byte_code_buf) << 8;
-            index += *pc;
-            index %= sizeof(libfuzzer_bytecode_counter);
-            libfuzzer_bytecode_counter[index]++;
-        }
         SWITCH(pc) {
         CASE(OP_push_i32):
             *sp++ = JS_NewInt32(ctx, get_u32(pc));
@@ -18837,17 +18845,20 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 
         CASE(OP_goto):
             pc += (int32_t)get_u32(pc);
+            libfuzzer_trace_bytecode_block(b, pc);
             if (unlikely(js_poll_interrupts(ctx)))
                 goto exception;
             BREAK;
 #if SHORT_OPCODES
         CASE(OP_goto16):
             pc += (int16_t)get_u16(pc);
+            libfuzzer_trace_bytecode_block(b, pc);
             if (unlikely(js_poll_interrupts(ctx)))
                 goto exception;
             BREAK;
         CASE(OP_goto8):
             pc += (int8_t)pc[0];
+            libfuzzer_trace_bytecode_block(b, pc);
             if (unlikely(js_poll_interrupts(ctx)))
                 goto exception;
             BREAK;
@@ -18868,6 +18879,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 if (res) {
                     pc += (int32_t)get_u32(pc - 4) - 4;
                 }
+                libfuzzer_trace_bytecode_block(b, pc);
                 if (unlikely(js_poll_interrupts(ctx)))
                     goto exception;
             }
@@ -18889,6 +18901,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 if (!res) {
                     pc += (int32_t)get_u32(pc - 4) - 4;
                 }
+                libfuzzer_trace_bytecode_block(b, pc);
                 if (unlikely(js_poll_interrupts(ctx)))
                     goto exception;
             }
@@ -18910,6 +18923,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 if (res) {
                     pc += (int8_t)pc[-1] - 1;
                 }
+                libfuzzer_trace_bytecode_block(b, pc);
                 if (unlikely(js_poll_interrupts(ctx)))
                     goto exception;
             }
@@ -18930,6 +18944,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 if (!res) {
                     pc += (int8_t)pc[-1] - 1;
                 }
+                libfuzzer_trace_bytecode_block(b, pc);
                 if (unlikely(js_poll_interrupts(ctx)))
                     goto exception;
             }
@@ -18952,6 +18967,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 sp[0] = JS_NewInt32(ctx, pc + 4 - b->byte_code_buf);
                 sp++;
                 pc += diff;
+                libfuzzer_trace_bytecode_block(b, pc);
             }
             BREAK;
         CASE(OP_ret):
@@ -18969,6 +18985,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 }
                 sp--;
                 pc = b->byte_code_buf + pos;
+                libfuzzer_trace_bytecode_block(b, pc);
             }
             BREAK;
 
@@ -20602,6 +20619,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     JS_FreeValue(ctx, sp[-1]);
                     sp--;
                 }
+                libfuzzer_trace_bytecode_block(b, pc);
             }
             BREAK;
 

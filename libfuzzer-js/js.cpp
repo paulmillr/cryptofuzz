@@ -6,8 +6,36 @@ extern "C" {
     #include <quickjs-libc.h>
 }
 
+struct JS::PersistentState {
+    JSRuntime* rt = nullptr;
+    JSContext* ctx = nullptr;
+    JSValue runner = JS_UNDEFINED;
+    size_t runCount = 0;
+};
+
 JS::JS(void) :
     memoryLimit(0) {
+}
+
+JS::~JS(void) {
+    ResetPersistentState();
+}
+
+void JS::ResetPersistentState(void) {
+    if ( persistentState == nullptr ) {
+        return;
+    }
+
+    if ( persistentState->ctx != nullptr ) {
+        JS_FreeValue(persistentState->ctx, persistentState->runner);
+        JS_FreeContext(persistentState->ctx);
+    }
+    if ( persistentState->rt != nullptr ) {
+        js_std_free_handlers(persistentState->rt);
+        JS_FreeRuntime(persistentState->rt);
+    }
+
+    persistentState.reset();
 }
 
 void JS::SetBytecode(const std::vector<char>& bytecode) {
@@ -17,11 +45,18 @@ void JS::SetBytecode(const std::vector<char>& bytecode) {
 }
         
 void JS::SetBytecode(const std::vector<uint8_t>& bytecode) {
+    ResetPersistentState();
     this->bytecode = bytecode;
 }
 
 void JS::SetMemoryLimit(const size_t limit) {
+    ResetPersistentState();
     memoryLimit = limit;
+}
+
+void JS::SetEntrypoint(const std::string& name) {
+    ResetPersistentState();
+    entrypoint = name;
 }
 
 std::vector<char> JS::LoadFile(const std::string& fn) {
@@ -107,6 +142,264 @@ std::optional<std::string> JS::Run(const std::string& data) {
 }
 
 std::optional<std::string> JS::Run(const void* data, const size_t size, const bool asString) {
+    if ( entrypoint.empty() == false && asString == true ) {
+        return RunPersistent(data, size);
+    }
+
+    return RunFresh(data, size, asString);
+}
+
+bool JS::InitializePersistentState(void) {
+    if ( persistentState != nullptr ) {
+        return true;
+    }
+
+    if ( bytecode.empty() ) {
+        std::cout << "No bytecode defined" << std::endl;
+        exit(1);
+    }
+
+    auto state = std::make_unique<PersistentState>();
+    state->rt = JS_NewRuntime();
+    if ( state->rt == nullptr ) {
+        return false;
+    }
+    js_std_init_handlers(state->rt);
+
+    state->ctx = JS_NewContext(state->rt);
+    if ( state->ctx == nullptr ) {
+        js_std_free_handlers(state->rt);
+        JS_FreeRuntime(state->rt);
+        return false;
+    }
+
+    if ( memoryLimit ) {
+        /* noret */ JS_SetMemoryLimit(state->rt, memoryLimit);
+    }
+    /* noret */ JS_SetGCThreshold(state->rt, -1);
+    /* noret */ js_std_add_helpers(state->ctx, 0, nullptr);
+
+    /* The persistent harness declares its entrypoint while the bundle loads. */
+    /* noret */ js_std_eval_binary(state->ctx, bytecode.data(), bytecode.size(), 0);
+    /* noret */ js_std_loop(state->ctx);
+
+    const auto global = JS_GetGlobalObject(state->ctx);
+    state->runner = JS_GetPropertyStr(state->ctx, global, entrypoint.c_str());
+    JS_FreeValue(state->ctx, global);
+
+    if ( JS_IsException(state->runner) || JS_IsFunction(state->ctx, state->runner) == false ) {
+        if ( JS_IsException(state->runner) ) {
+            js_std_dump_error(state->ctx);
+        }
+        JS_FreeValue(state->ctx, state->runner);
+        JS_FreeContext(state->ctx);
+        js_std_free_handlers(state->rt);
+        JS_FreeRuntime(state->rt);
+        return false;
+    }
+
+    persistentState = std::move(state);
+    return true;
+}
+
+std::optional<std::string> JS::RunPersistent(const void* data, const size_t size) {
+    std::optional<std::string> ret = std::nullopt;
+
+    if ( InitializePersistentState() == false ) {
+        return ret;
+    }
+
+    auto input = JS_NewStringLen(
+            persistentState->ctx,
+            static_cast<const char*>(data),
+            size);
+    if ( JS_IsException(input) ) {
+        js_std_dump_error(persistentState->ctx);
+        ResetPersistentState();
+        return ret;
+    }
+
+    const auto result = JS_Call(
+            persistentState->ctx,
+            persistentState->runner,
+            JS_UNDEFINED,
+            1,
+            &input);
+    JS_FreeValue(persistentState->ctx, input);
+
+    if ( JS_IsException(result) ) {
+        js_std_dump_error(persistentState->ctx);
+        JS_FreeValue(persistentState->ctx, result);
+        ResetPersistentState();
+        return ret;
+    }
+
+    if ( JS_IsString(result) ) {
+        size_t outputSize = 0;
+        const char* output = JS_ToCStringLen(persistentState->ctx, &outputSize, result);
+        if ( output != nullptr ) {
+            ret = std::string(output, outputSize);
+            JS_FreeCString(persistentState->ctx, output);
+        } else {
+            JS_FreeValue(persistentState->ctx, result);
+            js_std_dump_error(persistentState->ctx);
+            ResetPersistentState();
+            return ret;
+        }
+    }
+    JS_FreeValue(persistentState->ctx, result);
+
+    persistentState->runCount++;
+    if ( (persistentState->runCount % 1024) == 0 ) {
+        JS_RunGC(persistentState->rt);
+    }
+
+    return ret;
+}
+
+std::optional<std::vector<uint8_t>> JS::RunByteArrays(
+        const std::string& functionName,
+        const std::vector<std::string>& stringArguments,
+        const std::vector<std::pair<const uint8_t*, size_t>>& byteArrays) {
+    std::optional<std::vector<uint8_t>> ret = std::nullopt;
+
+    if ( entrypoint.empty() || InitializePersistentState() == false ) {
+        return ret;
+    }
+
+    auto global = JS_GetGlobalObject(persistentState->ctx);
+    auto runner = JS_GetPropertyStr(persistentState->ctx, global, functionName.c_str());
+    JS_FreeValue(persistentState->ctx, global);
+    if ( JS_IsException(runner) || JS_IsFunction(persistentState->ctx, runner) == false ) {
+        if ( JS_IsException(runner) ) {
+            js_std_dump_error(persistentState->ctx);
+        }
+        JS_FreeValue(persistentState->ctx, runner);
+        ResetPersistentState();
+        return ret;
+    }
+
+    std::vector<JSValue> arguments;
+    arguments.reserve(stringArguments.size() + 1);
+    for (const auto& stringArgument : stringArguments) {
+        auto argument = JS_NewStringLen(
+                persistentState->ctx,
+                stringArgument.data(),
+                stringArgument.size());
+        if ( JS_IsException(argument) ) {
+            js_std_dump_error(persistentState->ctx);
+            for (const auto& value : arguments) {
+                JS_FreeValue(persistentState->ctx, value);
+            }
+            JS_FreeValue(persistentState->ctx, runner);
+            ResetPersistentState();
+            return ret;
+        }
+        arguments.push_back(argument);
+    }
+
+    auto array = JS_NewArray(persistentState->ctx);
+    if ( JS_IsException(array) ) {
+        js_std_dump_error(persistentState->ctx);
+        for (const auto& value : arguments) {
+            JS_FreeValue(persistentState->ctx, value);
+        }
+        JS_FreeValue(persistentState->ctx, runner);
+        ResetPersistentState();
+        return ret;
+    }
+
+    for (size_t i = 0; i < byteArrays.size(); i++) {
+        auto buffer = JS_NewArrayBuffer(
+                persistentState->ctx,
+                const_cast<uint8_t*>(byteArrays[i].first),
+                byteArrays[i].second,
+                nullptr,
+                nullptr,
+                false);
+        if ( JS_IsException(buffer) ||
+                JS_SetPropertyUint32(persistentState->ctx, array, i, buffer) < 0 ) {
+            js_std_dump_error(persistentState->ctx);
+            JS_FreeValue(persistentState->ctx, array);
+            for (const auto& value : arguments) {
+                JS_FreeValue(persistentState->ctx, value);
+            }
+            JS_FreeValue(persistentState->ctx, runner);
+            ResetPersistentState();
+            return ret;
+        }
+    }
+    arguments.push_back(array);
+
+    auto result = JS_Call(
+            persistentState->ctx,
+            runner,
+            JS_UNDEFINED,
+            arguments.size(),
+            arguments.data());
+    for (const auto& value : arguments) {
+        JS_FreeValue(persistentState->ctx, value);
+    }
+    JS_FreeValue(persistentState->ctx, runner);
+
+    if ( JS_IsException(result) ) {
+        js_std_dump_error(persistentState->ctx);
+        JS_FreeValue(persistentState->ctx, result);
+        ResetPersistentState();
+        return ret;
+    }
+
+    size_t outputOffset = 0;
+    size_t outputLength = 0;
+    size_t bytesPerElement = 0;
+    auto outputBuffer = JS_GetTypedArrayBuffer(
+            persistentState->ctx,
+            result,
+            &outputOffset,
+            &outputLength,
+            &bytesPerElement);
+    if ( JS_IsException(outputBuffer) || bytesPerElement != 1 ) {
+        JS_FreeValue(persistentState->ctx, outputBuffer);
+        JS_FreeValue(persistentState->ctx, result);
+        js_std_dump_error(persistentState->ctx);
+        ResetPersistentState();
+        return ret;
+    }
+
+    size_t outputBufferSize = 0;
+    const auto output = JS_GetArrayBuffer(
+            persistentState->ctx,
+            &outputBufferSize,
+            outputBuffer);
+    if ( outputOffset > outputBufferSize ||
+            outputLength > outputBufferSize - outputOffset ||
+            (output == nullptr && outputLength != 0) ) {
+        JS_FreeValue(persistentState->ctx, outputBuffer);
+        JS_FreeValue(persistentState->ctx, result);
+        js_std_dump_error(persistentState->ctx);
+        ResetPersistentState();
+        return ret;
+    }
+
+    if ( outputLength == 0 ) {
+        ret = std::vector<uint8_t>();
+    } else {
+        ret = std::vector<uint8_t>(
+                output + outputOffset,
+                output + outputOffset + outputLength);
+    }
+    JS_FreeValue(persistentState->ctx, outputBuffer);
+    JS_FreeValue(persistentState->ctx, result);
+
+    persistentState->runCount++;
+    if ( (persistentState->runCount % 1024) == 0 ) {
+        JS_RunGC(persistentState->rt);
+    }
+
+    return ret;
+}
+
+std::optional<std::string> JS::RunFresh(const void* data, const size_t size, const bool asString) {
     std::optional<std::string> ret = std::nullopt;
 
     JSRuntime* rt = nullptr;

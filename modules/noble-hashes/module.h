@@ -10,6 +10,7 @@ namespace module {
 class noble_hashes : public Module {
     public:
         void* js;
+        void* nodeWorker;
         noble_hashes(void);
         ~noble_hashes();
         std::optional<component::Digest> OpDigest(operation::Digest& op) override;

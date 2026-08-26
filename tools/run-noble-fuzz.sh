@@ -112,12 +112,17 @@ announce "Fuzzing $NOBLE_MODULE at $NOBLE_SOURCE_SHA with seed $FUZZ_SEED"
 
 case "$NOBLE_MODULE" in
     noble-hashes)
-        argon2_time=$((fuzz_total_time / 100))
-        fast_time=$((fuzz_total_time - argon2_time))
-        fast_operations="Digest,HMAC,KDF_HKDF,KDF_PBKDF2,KDF_SCRYPT"
+        digest_time=$((fuzz_total_time * 65 / 100))
+        kdfs_time=$((fuzz_total_time * 30 / 100))
+        argon2_time=$((fuzz_total_time - digest_time - kdfs_time))
+        kdfs_operations="HMAC,KDF_HKDF,KDF_PBKDF2,KDF_SCRYPT"
 
-        run_phase fast fuzz-corpus "$fast_time" "$fast_operations"
-        run_phase argon2 fuzz-corpus-argon2 "$argon2_time" "KDF_ARGON2"
+        CRYPTOFUZZ_NOBLE_HASHES_NODE=1 \
+            run_phase digest fuzz-corpus-digest "$digest_time" "Digest"
+        CRYPTOFUZZ_NOBLE_HASHES_NODE=1 \
+            run_phase kdfs fuzz-corpus-kdfs "$kdfs_time" "$kdfs_operations"
+        CRYPTOFUZZ_NOBLE_HASHES_NODE=1 \
+            run_phase argon2 fuzz-corpus-argon2 "$argon2_time" "KDF_ARGON2"
         ;;
     noble-curves)
         pairing_time=$((fuzz_total_time * 5 / 100))
