@@ -9,6 +9,7 @@ import { Corpus } from './lib/corpus.mjs';
 import { replayCases, runEngine } from './lib/engine.mjs';
 import { getProject } from './lib/projects/index.mjs';
 import { minimizeFailure, reduceCorpus } from './lib/reducer.mjs';
+import { normalizeSeed } from './lib/seed.mjs';
 import { mergeWorkerStats } from './lib/stats.mjs';
 import { deriveWorkerSeed, resolveWorkerCount } from './lib/workers.mjs';
 
@@ -57,6 +58,14 @@ function environmentFlag(name, defaultValue = false) {
   throw new Error(`${name} must be 0 or 1`);
 }
 
+function seedValue(value, label) {
+  try {
+    return normalizeSeed(value);
+  } catch (error) {
+    throw new Error(`${label}: ${error.message}`);
+  }
+}
+
 function engineOptions(args, engineChild = false) {
   const phase = args.phase;
   if (typeof phase !== 'string' || phase.length === 0) throw new Error('--phase is required');
@@ -66,7 +75,7 @@ function engineOptions(args, engineChild = false) {
     ? environmentInteger('NOBLEFUZZ_ENGINE_RUNS', { optional: true }) ?? requestedRuns
     : requestedRuns;
   if (seconds === undefined && runs === undefined) throw new Error('one of --seconds or --runs is required');
-  const baseSeed = integerArgument(args, 'seed');
+  const baseSeed = seedValue(args.seed, '--seed');
   const coverageEvery = integerArgument(args, 'coverage-every', { optional: true });
   const coverageSeconds = integerArgument(args, 'coverage-seconds', { optional: true });
   if (coverageEvery !== undefined && coverageSeconds !== undefined) {
@@ -77,7 +86,7 @@ function engineOptions(args, engineChild = false) {
     phase,
     seconds,
     runs,
-    seed: engineChild ? environmentInteger('NOBLEFUZZ_ENGINE_SEED') : baseSeed,
+    seed: engineChild ? seedValue(process.env.NOBLEFUZZ_ENGINE_SEED, 'NOBLEFUZZ_ENGINE_SEED') : baseSeed,
     baseSeed,
     workerId: engineChild ? environmentInteger('NOBLEFUZZ_ENGINE_WORKER_ID', { minimum: 0 }) : undefined,
     maxLength: integerArgument(args, 'max-len', { minimum: 16 }),
@@ -150,7 +159,7 @@ async function supervise(args) {
   };
 
   for (let workerId = 0; workerId < workerCount; workerId++) {
-    const workerSeed = deriveWorkerSeed(options.seed, workerId);
+    const workerSeed = deriveWorkerSeed(options.seed, workerId, `${options.project}/${options.phase}`);
     const workerRuns = options.runs === undefined
       ? undefined
       : Math.floor(options.runs / workerCount) + (workerId < options.runs % workerCount ? 1 : 0);

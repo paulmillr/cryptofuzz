@@ -26,29 +26,22 @@ jobs:
           path: noble-source
           persist-credentials: false
 
-      - name: Check out Cryptofuzz
+      - name: Check out noblefuzz
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          path: cryptofuzz
+          path: fuzzer
           persist-credentials: false
 
-      - name: Select Noble fuzzer
+      - name: Select Noble project
         id: project
-        working-directory: cryptofuzz
+        working-directory: fuzzer
         env:
-          ADAPTERS_ROOT: ${{ github.workspace }}/cryptofuzz/modules
-          NOBLEFUZZ_ROOT: ${{ github.workspace }}/cryptofuzz/noblefuzz
+          NOBLEFUZZ_ROOT: ${{ github.workspace }}/fuzzer/noblefuzz
           NOBLE_SOURCE_ROOT: ${{ github.workspace }}/noble-source
           PROJECT_NAME: ${{ github.event.repository.name }}
-        run: |
-          if [[ "$PROJECT_NAME" == "noble-hashes" || "$PROJECT_NAME" == "noble-ciphers" || "$PROJECT_NAME" == "noble-curves" || "$PROJECT_NAME" == "noble-post-quantum" ]]; then
-            node ./noblefuzz/select-project.mjs
-          else
-            ./tools/select-noble-adapter.py
-            echo "engine=cryptofuzz" >> "$GITHUB_OUTPUT"
-          fi
+        run: node ./noblefuzz/select-project.mjs
 
       - name: Record Noble revision
         id: source
@@ -61,18 +54,11 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: cryptofuzz/.node-version
+          node-version-file: fuzzer/.node-version
           cache: npm
           cache-dependency-path: |
             noble-source/package-lock.json
-            cryptofuzz/modules/${{ steps.project.outputs.module }}/package-lock.json
-            cryptofuzz/noblefuzz/package-lock.json
-
-      - name: Install build dependencies
-        if: steps.project.outputs.engine == 'cryptofuzz'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libboost-dev
+            fuzzer/noblefuzz/package-lock.json
 
       - name: Build Noble commit
         working-directory: noble-source
@@ -80,20 +66,8 @@ jobs:
           npm ci
           npm run build
 
-      - name: Test selected adapter
-        if: steps.project.outputs.engine == 'cryptofuzz'
-        working-directory: cryptofuzz
-        env:
-          NOBLE_MODULE: ${{ steps.project.outputs.module }}
-          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
-        run: |
-          make -C "modules/$NOBLE_MODULE" ids.js
-          npm --prefix "modules/$NOBLE_MODULE" ci
-          npm --prefix "modules/$NOBLE_MODULE" test
-
       - name: Install and test noblefuzz
-        if: steps.project.outputs.engine == 'noblefuzz'
-        working-directory: cryptofuzz
+        working-directory: fuzzer
         env:
           NOBLE_PROJECT: ${{ steps.project.outputs.module }}
           NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
@@ -102,29 +76,20 @@ jobs:
           env -u NOBLE_SOURCE_DIR npm --prefix noblefuzz test
           node noblefuzz/test-project.mjs "$NOBLE_PROJECT"
 
-      - name: Build selected fuzzer
-        if: steps.project.outputs.engine == 'cryptofuzz'
-        working-directory: cryptofuzz
-        env:
-          NOBLE_MODULE: ${{ steps.project.outputs.module }}
-          NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
-        run: ./build.sh noble
-
-      - name: Generate random seed
+      - name: Generate 256-bit random seed
         id: seed
         shell: bash
         run: |
-          seed="$(od -An -N4 -tu4 /dev/urandom)"
-          seed="${seed//[[:space:]]/}"
-          if [[ "$seed" == 0 ]]; then
-            seed=1
-          fi
+          while true; do
+            seed="$(od -An -N32 -tx1 /dev/urandom)"
+            seed="0x${seed//[[:space:]]/}"
+            [[ ! "$seed" =~ ^0x0+$ ]] && break
+          done
           echo "value=$seed" >> "$GITHUB_OUTPUT"
           echo "Using fuzzing seed $seed"
 
       - name: Fuzz with noblefuzz for two hours
-        if: steps.project.outputs.engine == 'noblefuzz'
-        working-directory: cryptofuzz
+        working-directory: fuzzer
         env:
           FUZZ_MAX_LEN: ${{ steps.project.outputs.max_len }}
           FUZZ_SEED: ${{ steps.seed.outputs.value }}
@@ -136,32 +101,18 @@ jobs:
           NOBLE_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: ./noblefuzz/run.sh
 
-      - name: Fuzz with Cryptofuzz for two hours
-        if: steps.project.outputs.engine == 'cryptofuzz'
-        working-directory: cryptofuzz
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          FUZZ_MAX_LEN: ${{ steps.project.outputs.max_len }}
-          FUZZ_SEED: ${{ steps.seed.outputs.value }}
-          NOBLE_MODULE: ${{ steps.project.outputs.module }}
-          NOBLE_REPOSITORY: ${{ github.repository }}
-          NOBLE_SOURCE_PACKAGE: ${{ steps.project.outputs.source_package }}
-          NOBLE_SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ./tools/run-noble-fuzz.sh
-
       - name: Upload fuzzing artifacts and corpus
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.project.outputs.module }}-${{ steps.source.outputs.sha }}-${{ github.run_attempt }}
           path: |
-            cryptofuzz/fuzz-artifacts/
-            cryptofuzz/fuzz-corpus/
-            cryptofuzz/fuzz-corpus-digest/
-            cryptofuzz/fuzz-corpus-kdfs/
-            cryptofuzz/fuzz-corpus-argon2/
-            cryptofuzz/fuzz-corpus-pairing/
-            cryptofuzz/fuzz-corpus-slh-dsa/
+            fuzzer/fuzz-artifacts/
+            fuzzer/fuzz-corpus/
+            fuzzer/fuzz-corpus-digest/
+            fuzzer/fuzz-corpus-kdfs/
+            fuzzer/fuzz-corpus-argon2/
+            fuzzer/fuzz-corpus-pairing/
+            fuzzer/fuzz-corpus-slh-dsa/
           if-no-files-found: ignore
           retention-days: 14

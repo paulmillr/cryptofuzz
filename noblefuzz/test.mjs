@@ -9,6 +9,7 @@ import { runEngine } from './lib/engine.mjs';
 import { GuidanceTracker, instrumentSource } from './lib/instrumenter.mjs';
 import { PRNG } from './lib/prng.mjs';
 import { minimizeFailure, reduceCorpus } from './lib/reducer.mjs';
+import { normalizeSeed } from './lib/seed.mjs';
 import { createTarget } from './lib/target.mjs';
 import { executeCase } from './lib/verifier.mjs';
 import { deriveWorkerSeed, resolveWorkerCount } from './lib/workers.mjs';
@@ -19,6 +20,17 @@ const target = await createTarget(sourceDirectory);
 const randomA = new PRNG(123);
 const randomB = new PRNG(123);
 assert.deepEqual(Array.from({ length: 100 }, () => randomA.next()), Array.from({ length: 100 }, () => randomB.next()));
+const lowSeedRandom = new PRNG(123);
+const highSeedRandom = new PRNG((1n << 200n) + 123n);
+assert.notDeepEqual(Array.from({ length: 100 }, () => lowSeedRandom.next()),
+  Array.from({ length: 100 }, () => highSeedRandom.next()));
+const boundaryRandom = new PRNG(456);
+boundaryRandom.bytes(16 * 1024 - 1);
+assert.ok(Number.isSafeInteger(boundaryRandom.next()));
+assert.equal(normalizeSeed(1), `0x${'0'.repeat(63)}1`);
+assert.equal(normalizeSeed('0x01'), normalizeSeed(1));
+assert.throws(() => normalizeSeed(0), /positive.*256 bits/);
+assert.throws(() => normalizeSeed(1n << 256n), /positive.*256 bits/);
 assert.equal(resolveWorkerCount(1, 24), 1);
 assert.equal(resolveWorkerCount(12, 24), 12);
 assert.equal(resolveWorkerCount('auto', 24), 10);
@@ -28,9 +40,9 @@ assert.equal(resolveWorkerCount('0.5', 8), 4);
 assert.throws(() => resolveWorkerCount(0, 8), /invalid worker count/);
 assert.throws(() => resolveWorkerCount('2x', 8), /invalid worker count/);
 assert.throws(() => resolveWorkerCount('200%', 8), /invalid worker count/);
-assert.equal(deriveWorkerSeed(123, 0), 123);
-assert.equal(deriveWorkerSeed(123, 1), deriveWorkerSeed(123, 1));
-assert.notEqual(deriveWorkerSeed(123, 1), deriveWorkerSeed(123, 2));
+assert.equal(deriveWorkerSeed(123, 1, 'test/phase'), deriveWorkerSeed(123, 1, 'test/phase'));
+assert.notEqual(deriveWorkerSeed(123, 1, 'test/phase'), deriveWorkerSeed(123, 2, 'test/phase'));
+assert.notEqual(deriveWorkerSeed(123, 1, 'test/phase'), deriveWorkerSeed(123, 1, 'test/other'));
 
 const instrumented = instrumentSource(`
 globalThis.__noblefuzzInstrumentTest = (value) => {
@@ -225,7 +237,10 @@ try {
   assert.deepEqual(cliStats.workerRoles, ['guidance', 'throughput']);
   assert.ok(cliStats.guidanceCases > 0);
   assert.ok(cliStats.guidanceFeatures > 0);
-  assert.deepEqual(cliStats.workerSeeds, [1001, deriveWorkerSeed(1001, 1)]);
+  const cliSeed = normalizeSeed(1001);
+  assert.equal(cliStats.seed, cliSeed);
+  assert.deepEqual(cliStats.workerSeeds, [0, 1]
+    .map((workerId) => deriveWorkerSeed(cliSeed, workerId, 'noble-hashes/digest')));
   assert.equal(cliStats.operations.Digest.runs, cliStats.runs);
   const workerStats = (await readdir(path.join(temporary, 'cli-artifacts')))
     .filter((name) => /^stats-digest-worker-\d+\.json$/.test(name));

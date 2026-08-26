@@ -18,13 +18,17 @@ per_input_timeout="${FUZZ_PER_INPUT_TIMEOUT:-600}"
 worker_spec="${NOBLEFUZZ_WORKERS:-auto}"
 guidance_workers="${NOBLEFUZZ_GUIDANCE_WORKERS:-1}"
 coverage_seconds="${NOBLEFUZZ_COVERAGE_SECONDS:-30}"
-for value_name in FUZZ_MAX_LEN FUZZ_SEED fuzz_total_time per_input_timeout; do
+for value_name in FUZZ_MAX_LEN fuzz_total_time per_input_timeout; do
     value="${!value_name}"
     if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
         echo "$value_name must be a positive integer, got: $value" >&2
         exit 1
     fi
 done
+if [[ ! "$FUZZ_SEED" =~ ^([1-9][0-9]*|0[xX][0-9a-fA-F]{1,64})$ ]] || [[ "$FUZZ_SEED" =~ ^0[xX]0+$ ]]; then
+    echo "FUZZ_SEED must be a positive decimal or 0x-prefixed hexadecimal integer of at most 256 bits, got: $FUZZ_SEED" >&2
+    exit 1
+fi
 if [[ ! "$coverage_seconds" =~ ^[0-9]+$ ]]; then
     echo "NOBLEFUZZ_COVERAGE_SECONDS must be a non-negative integer, got: $coverage_seconds" >&2
     exit 1
@@ -95,7 +99,7 @@ done
 
 {
     echo "engine=noblefuzz"
-    echo "engine_version=1"
+    echo "engine_version=2"
     echo "repository=$NOBLE_REPOSITORY"
     echo "source_package=$NOBLE_SOURCE_PACKAGE"
     echo "source_sha=$NOBLE_SOURCE_SHA"

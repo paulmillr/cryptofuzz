@@ -70,4 +70,13 @@ for (const replacedOracle of ['@stablelib/salsa20', '@stablelib/xchacha20poly130
     `${replacedOracle} should be replaced by libsodium WASM`);
 }
 
+const ciWorkflow = await source('.github/workflows/ci.yml');
+assert.match(ciWorkflow, /npm --prefix noblefuzz test/, 'CI does not test noblefuzz');
+assert.doesNotMatch(ciWorkflow, /\.\/cryptofuzz|build\.sh|make test-noble|test-rust\.sh|modules\/golang/,
+  'CI still invokes a Cryptofuzz build or adapter');
+const commitWorkflow = await source('.github/workflows/noble-commit-fuzz.yml');
+assert.match(commitWorkflow, /-N32 -tx1 \/dev\/urandom/, 'commit workflow does not generate a 256-bit seed');
+assert.doesNotMatch(commitWorkflow, /engine == 'cryptofuzz'|run-noble-fuzz\.sh|build\.sh noble|select-noble-adapter/,
+  'commit workflow still selects or runs Cryptofuzz');
+
 console.log('noblefuzz adapter-contract audit passed');

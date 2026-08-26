@@ -1,4 +1,5 @@
 import { availableParallelism } from 'node:os';
+import { deriveSeed } from './seed.mjs';
 
 const MAX_WORKERS = 256;
 const RELATIVE_WORKER_CAP = 10;
@@ -30,21 +31,10 @@ export function resolveWorkerCount(value = 1, parallelism = availableParallelism
   return Math.max(1, Math.min(count, cap));
 }
 
-function normalizeSeed(seed) {
-  const normalized = Number(seed) >>> 0;
-  return normalized === 0 ? 0x9e3779b9 : normalized;
-}
-
-// Preserve worker zero's historical stream and avalanche all additional streams.
-export function deriveWorkerSeed(seed, workerId) {
+export function deriveWorkerSeed(seed, workerId, context = 'default') {
   if (!Number.isSafeInteger(workerId) || workerId < 0) throw new Error('worker id must be a non-negative integer');
-  const base = normalizeSeed(seed);
-  if (workerId === 0) return base;
-  let value = (base + Math.imul(workerId, 0x9e3779b9)) >>> 0;
-  value ^= value >>> 16;
-  value = Math.imul(value, 0x85ebca6b) >>> 0;
-  value ^= value >>> 13;
-  value = Math.imul(value, 0xc2b2ae35) >>> 0;
-  value ^= value >>> 16;
-  return normalizeSeed(value);
+  if (typeof context !== 'string' || context.length === 0 || context.includes('\0')) {
+    throw new Error('worker seed context must be a non-empty string without NUL bytes');
+  }
+  return deriveSeed(seed, JSON.stringify(['worker', context, workerId]));
 }

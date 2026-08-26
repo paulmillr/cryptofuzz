@@ -1,16 +1,37 @@
+import { createCipheriv, createHash } from 'node:crypto';
+import { seedBytes } from './seed.mjs';
+
+const BUFFER_BYTES = 16 * 1024;
+const ZEROES = Buffer.alloc(BUFFER_BYTES);
+
 export class PRNG {
   constructor(seed) {
-    this.state = Number(seed) >>> 0;
-    if (this.state === 0) this.state = 0x9e3779b9;
+    const key = createHash('sha256')
+      .update('noblefuzz-prng-v2\0')
+      .update(seedBytes(seed))
+      .digest();
+    this.cipher = createCipheriv('chacha20', key, Buffer.alloc(16));
+    this.buffer = Buffer.alloc(0);
+    this.offset = 0;
+  }
+
+  refill() {
+    this.buffer = this.cipher.update(ZEROES);
+    this.offset = 0;
   }
 
   next() {
-    let value = this.state;
-    value ^= value << 13;
-    value ^= value >>> 17;
-    value ^= value << 5;
-    this.state = value >>> 0;
-    return this.state;
+    if (this.buffer.length - this.offset >= 4) {
+      const value = this.buffer.readUInt32LE(this.offset);
+      this.offset += 4;
+      return value;
+    }
+    let value = 0;
+    for (let shift = 0; shift < 32; shift += 8) {
+      if (this.offset === this.buffer.length) this.refill();
+      value |= this.buffer[this.offset++] << shift;
+    }
+    return value >>> 0;
   }
 
   int(limit) {
@@ -29,11 +50,13 @@ export class PRNG {
 
   bytes(length) {
     const result = new Uint8Array(length);
-    let word = 0;
-    for (let index = 0; index < length; index++) {
-      if ((index & 3) === 0) word = this.next();
-      result[index] = word & 0xff;
-      word >>>= 8;
+    let written = 0;
+    while (written < length) {
+      if (this.offset === this.buffer.length) this.refill();
+      const count = Math.min(length - written, this.buffer.length - this.offset);
+      result.set(this.buffer.subarray(this.offset, this.offset + count), written);
+      this.offset += count;
+      written += count;
     }
     return result;
   }

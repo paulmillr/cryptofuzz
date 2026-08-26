@@ -30,5 +30,5 @@ if (engine.name !== 'noblefuzz' || engine.dependencies?.[selected.packageName] =
 }
 
 await appendFile(process.env.GITHUB_OUTPUT,
-  `engine=noblefuzz\nmodule=${projectName}\nsource_package=${selected.packageName}\nmax_len=${selected.maxLength}\n`);
+  `module=${projectName}\nsource_package=${selected.packageName}\nmax_len=${selected.maxLength}\n`);
 console.log(`Selected noblefuzz for ${selected.packageName}`);

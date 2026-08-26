@@ -8,6 +8,7 @@ import { Corpus } from './corpus.mjs';
 import { CoverageSampler } from './coverage.mjs';
 import { enableGuidance } from './guidance.mjs';
 import { PRNG } from './prng.mjs';
+import { normalizeSeed } from './seed.mjs';
 import { getProject } from './projects/index.mjs';
 
 function safeError(error) {
@@ -142,6 +143,8 @@ export async function runEngine(options) {
     coverageSeconds,
     guidance = false,
   } = options;
+  const normalizedSeed = normalizeSeed(seed);
+  const normalizedBaseSeed = normalizeSeed(baseSeed ?? seed);
   const project = getProject(projectName);
   if (!project.phases.includes(phase)) throw new Error(`${projectName} has no ${phase} phase`);
   const guidanceRuntime = guidance ? await enableGuidance(project.packageName, sourceDirectory) : undefined;
@@ -149,7 +152,7 @@ export async function runEngine(options) {
   const startedAt = new Date().toISOString();
   const start = performance.now();
   const deadline = seconds === undefined ? Infinity : start + seconds * 1000;
-  const prng = new PRNG(seed);
+  const prng = new PRNG(normalizedSeed);
   const coordinator = featureCoordinator(workerId);
   const corpus = new Corpus(corpusDirectory, phase, maxLength, project.validateCase);
   const coverage = guidance || (coverageEvery === undefined && coverageSeconds === undefined)
@@ -169,11 +172,11 @@ export async function runEngine(options) {
   const operations = Object.fromEntries(project.operations(phase).map((name) => [name, emptyOperationStats()]));
   const stats = {
     engine: 'noblefuzz',
-    version: 1,
+    version: 2,
     project: projectName,
     phase,
-    seed,
-    baseSeed: baseSeed ?? seed,
+    seed: normalizedSeed,
+    baseSeed: normalizedBaseSeed,
     workerId: workerId ?? null,
     workerRole: guidance ? 'guidance' : 'throughput',
     maxLength,
@@ -232,7 +235,9 @@ export async function runEngine(options) {
         result = execute();
       }
     } catch (error) {
-      const filename = await saveFailure(artifactDirectory, phase, seed, testcase, error, workerId, baseSeed);
+      const filename = await saveFailure(
+        artifactDirectory, phase, normalizedSeed, testcase, error, workerId, normalizedBaseSeed,
+      );
       error.message = `${error.message}; reproducer: ${filename}`;
       await closeRuntimes(true);
       throw error;
