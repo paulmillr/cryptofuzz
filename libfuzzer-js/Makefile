@@ -6,7 +6,8 @@ js.o : js.cpp js.h
 	$(CXX) $(CXXFLAGS) -std=c++17 -g -I quickjs/ -fsanitize=fuzzer-no-link js.cpp -c -o js.o
 
 quickjs/libquickjs.a :
-	$(MAKE) -C quickjs CONFIG_CLANG=y CC="$(CC)" libquickjs.a
+	CFLAGS="$(CFLAGS) -fno-sanitize=all" \
+		$(MAKE) -C quickjs CONFIG_CLANG=y CC="$(CC)" libquickjs.a
 
 jsfuzzer : harness.cpp js.o quickjs/libquickjs.a
 	test $(LIBFUZZER_A_PATH)

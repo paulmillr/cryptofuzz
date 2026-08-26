@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 const bundle = fs.readFileSync(new URL('./noble-hashes.js', import.meta.url), 'utf8');
 const idSource = fs.readFileSync(new URL('./ids.js', import.meta.url), 'utf8');
 const ids = Object.fromEntries(
-  [...idSource.matchAll(/export const Is(\w+) = function\(id\) \{ return id == BigInt\("(\d+)"\); \}/g)]
+  [...idSource.matchAll(/export const Is(\w+) = function\(id\) \{ return id === "(\d+)"; \}/g)]
     .map((match) => [match[1], match[2]])
 );
 
@@ -16,6 +17,73 @@ function run(operation, input) {
   };
   vm.runInNewContext(bundle, context);
   return context.FuzzerOutput === undefined ? undefined : JSON.parse(context.FuzzerOutput);
+}
+
+const directContext = {};
+vm.runInNewContext(bundle, directContext);
+
+function arrayBufferFromHex(hex) {
+  return Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16)).buffer;
+}
+
+function runDirectDigest(digestType, multipart, parts) {
+  const result = directContext.CryptofuzzDigest(
+    digestType,
+    multipart ? '1' : '0',
+    parts.map(arrayBufferFromHex)
+  );
+  return result === undefined ? undefined : Buffer.from(result).toString('hex');
+}
+
+function runNodeRequest(body) {
+  const header = Buffer.allocUnsafe(4);
+  header.writeUInt32LE(body.length);
+  const worker = spawnSync(process.execPath, ['node-worker.mjs'], {
+    input: Buffer.concat([header, body, Buffer.alloc(4)]),
+    maxBuffer: 1024 * 1024,
+  });
+  assert.equal(worker.status, 0, worker.stderr.toString());
+  assert.ok(worker.stdout.length >= 11);
+  const responseSize = worker.stdout.readUInt32LE();
+  assert.equal(responseSize, worker.stdout.length - 4);
+  let offset = 4;
+  assert.equal(worker.stdout[offset++], 1);
+  const outputSize = worker.stdout.readUInt32LE(offset);
+  offset += 4;
+  const output = worker.stdout.subarray(offset, offset + outputSize);
+  offset += outputSize;
+  const coverageCount = worker.stdout.readUInt16LE(offset);
+  assert.ok(coverageCount > 0);
+  assert.equal(offset + 2 + coverageCount * 3, worker.stdout.length);
+  return output;
+}
+
+function runNodeDigest(digestType, multipart, parts) {
+  const bodySize = 14 + parts.reduce((size, part) => size + 4 + part.length / 2, 0);
+  const body = Buffer.allocUnsafe(bodySize);
+  let offset = 0;
+  body[offset++] = 0;
+  body.writeBigUInt64LE(BigInt(digestType), offset);
+  offset += 8;
+  body[offset++] = multipart ? 1 : 0;
+  body.writeUInt32LE(parts.length, offset);
+  offset += 4;
+  for (const part of parts) {
+    const bytes = Buffer.from(part, 'hex');
+    body.writeUInt32LE(bytes.length, offset);
+    offset += 4;
+    bytes.copy(body, offset);
+    offset += bytes.length;
+  }
+  return runNodeRequest(body).toString('hex');
+}
+
+function runNodeJSON(operation, input) {
+  const json = Buffer.from(JSON.stringify({ ...input, operation: ids[operation] }));
+  const body = Buffer.allocUnsafe(json.length + 1);
+  body[0] = 1;
+  json.copy(body, 1);
+  return JSON.parse(runNodeRequest(body).toString());
 }
 
 assert.equal(run('Digest', {
@@ -31,6 +99,19 @@ assert.equal(run('Digest', {
   parts: ['61', '', '6263'],
 }), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
+assert.equal(
+  runDirectDigest(ids.SHA256, false, ['616263']),
+  'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+);
+assert.equal(
+  runDirectDigest(ids.SHA256, true, ['61', '', '6263']),
+  'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+);
+assert.equal(
+  runNodeDigest(ids.SHA256, true, ['61', '', '6263']),
+  'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+);
+
 assert.equal(run('HMAC', {
   digestType: ids.SHA256,
   haveParts: false,
@@ -39,6 +120,14 @@ assert.equal(run('HMAC', {
 }), 'b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7');
 
 assert.equal(run('KDF_HKDF', {
+  digestType: ids.SHA256,
+  password: '0b'.repeat(22),
+  salt: '000102030405060708090a0b0c',
+  info: 'f0f1f2f3f4f5f6f7f8f9',
+  keySize: '42',
+}), '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865');
+
+assert.equal(runNodeJSON('KDF_HKDF', {
   digestType: ids.SHA256,
   password: '0b'.repeat(22),
   salt: '000102030405060708090a0b0c',
@@ -150,9 +239,38 @@ assert.equal(run('KDF_SCRYPT', {
   salt: '4e61436c',
   N: '1024',
   r: '8',
-  p: '16',
+  p: '4',
   keySize: '64',
-}), 'fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640');
+}), '1ed1b3814e7bd065fea1b64fa617fb05ba290e301b2765b831876fb995044293cb8dc225ddc50b3dec862ae3c295d54caad62f4dfa00cf6853f8aa3ceb4354e0');
+
+assert.equal(run('KDF_SCRYPT', {
+  password: '70617373776f7264',
+  salt: '4e61436c',
+  N: '1024',
+  r: '8',
+  p: '5',
+  keySize: '64',
+}), undefined);
+
+assert.equal(run('KDF_ARGON2', {
+  password: '70617373776f7264',
+  salt: '736f6d6573616c74',
+  type: '2',
+  threads: '4',
+  memory: '32',
+  iterations: '2',
+  keySize: '32',
+}), 'd74d7db154b312931625cde5a51f76bc52113b4b0515aa94952203b3cc45b800');
+
+assert.equal(run('KDF_ARGON2', {
+  password: '70617373776f7264',
+  salt: '736f6d6573616c74',
+  type: '2',
+  threads: '5',
+  memory: '32',
+  iterations: '2',
+  keySize: '32',
+}), undefined);
 
 assert.equal(run('KDF_ARGON2', {
   password: '70617373776f7264',

@@ -6,8 +6,8 @@ CXXFLAGS += -Wall -Wextra -Werror -std=c++17 -I ../../include -I ../../fuzzing-h
 GENERATOR_CXXFLAGS = $(filter-out -fsanitize=%,$(CXXFLAGS))
 REPOSITORY_HEADER = ../../repository_tbl.h
 
-module.a: module.o
-	ar rcs module.a module.o
+module.a: module.o node_worker.o
+	ar rcs module.a module.o node_worker.o
 	ranlib module.a
 $(REPOSITORY_HEADER): ../../tools/gen_repository.py
 	$(MAKE) -C ../.. repository_tbl.h
@@ -25,5 +25,7 @@ noble-hashes.bytecode.h : noble-hashes.bytecode
 module.o: module.cpp module.h noble-hashes.bytecode.h
 	test $(LIBFUZZER_JS_PATH)
 	$(CXX) $(CXXFLAGS) -I $(LIBFUZZER_JS_PATH) -fPIC -c module.cpp -o module.o
+node_worker.o: node_worker.cpp node_worker.h
+	$(CXX) $(CXXFLAGS) -fPIC -c node_worker.cpp -o node_worker.o
 clean:
 	rm -rf *.o module.a ids.js generate_ids.bin noble-hashes.js noble-hashes.bytecode noble-hashes.bytecode.h

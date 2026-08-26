@@ -34,7 +34,7 @@ Save the following as `.github/workflows/cryptofuzz.yml` in any of the six
 supported Noble repositories:
 
 ```yaml
-name: Cryptofuzz
+name: Fuzz
 
 on:
   workflow_dispatch:
@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   fuzz:
-    uses: paulmillr/cryptofuzz/.github/workflows/noble-commit-fuzz.yml@9ab497ba69a97372c92cd0f4b4af8efbf4014f14
+    uses: paulmillr/cryptofuzz/.github/workflows/noble-commit-fuzz.yml@c13a8e7a38f02a31509b5e5a355e3ed395a401bd
     with:
       ref: ${{ inputs.ref || github.sha }}
 ```

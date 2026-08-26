@@ -55,3 +55,8 @@ test-noble: $(REPOSITORY_HEADERS)
 		npm --prefix modules/$$module ci; \
 		npm --prefix modules/$$module test; \
 	done
+	npm --prefix noblefuzz ci
+	npm --prefix noblefuzz test
+	set -e; for project in noble-hashes noble-ciphers noble-curves noble-post-quantum; do \
+		node noblefuzz/test-project.mjs $$project; \
+	done
