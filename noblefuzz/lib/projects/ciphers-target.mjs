@@ -1,8 +1,7 @@
 import { createCipheriv, createDecipheriv } from 'node:crypto';
 import { AES } from '@stablelib/aes';
-import { streamXOR as salsa20Oracle } from '@stablelib/salsa20';
 import { SIV } from '@stablelib/siv';
-import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305';
+import sodium from 'libsodium-wrappers-sumo';
 import { packageImporter } from '../package-importer.mjs';
 
 const AES_KW_IV = Uint8Array.from([0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6]);
@@ -149,15 +148,47 @@ function nodeDecrypt(spec, testcase, sealed) {
   return Uint8Array.from(Buffer.concat([decipher.update(body), decipher.final()]));
 }
 
-function stableEncrypt(spec, testcase) {
+function requireSodiumWasm() {
+  const wasmExport = sodium.libsodium?._crypto_stream_salsa20_xor;
+  if (typeof wasmExport !== 'function' || !Function.prototype.toString.call(wasmExport).includes('[native code]')) {
+    throw new Error('libsodium WebAssembly backend is unavailable');
+  }
+}
+
+function sodiumSalsa20Xor(key, nonce, message) {
+  const raw = sodium.libsodium;
+  const bufferLength = Math.max(1, message.length);
+  const allocationLength = bufferLength * 2 + nonce.length + key.length;
+  const allocation = raw._malloc(allocationLength);
+  if (allocation === 0) throw new Error('libsodium allocation failed');
+  try {
+    const outputPointer = allocation;
+    const messagePointer = outputPointer + bufferLength;
+    const noncePointer = messagePointer + bufferLength;
+    const keyPointer = noncePointer + nonce.length;
+    raw.HEAPU8.set(message, messagePointer);
+    raw.HEAPU8.set(nonce, noncePointer);
+    raw.HEAPU8.set(key, keyPointer);
+    // Emscripten legalizes the uint64_t message length as low/high uint32_t arguments.
+    const status = raw._crypto_stream_salsa20_xor(
+      outputPointer, messagePointer, message.length, 0, noncePointer, keyPointer,
+    );
+    if (status !== 0) throw new Error('libsodium Salsa20 failed');
+    return Uint8Array.from(raw.HEAPU8.subarray(outputPointer, outputPointer + message.length));
+  } finally {
+    raw.HEAPU8.fill(0, allocation, allocation + allocationLength);
+    raw._free(allocation);
+  }
+}
+
+function externalEncrypt(spec, testcase) {
   if (spec.kind === 'salsa20' && spec.keyLength === 32) {
-    return salsa20Oracle(testcase.key, testcase.iv, testcase.data, new Uint8Array(testcase.data.length));
+    return sodiumSalsa20Xor(testcase.key, testcase.iv, testcase.data);
   }
   if (spec.kind === 'xchacha20poly1305') {
-    const cipher = new XChaCha20Poly1305(testcase.key);
-    const result = cipher.seal(testcase.iv, testcase.data, testcase.aad);
-    cipher.clean();
-    return result;
+    return sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+      testcase.data, testcase.aad, null, testcase.iv, testcase.key,
+    );
   }
   if (spec.kind === 'aessiv') {
     const associated = [testcase.aad];
@@ -170,15 +201,14 @@ function stableEncrypt(spec, testcase) {
   return undefined;
 }
 
-function stableDecrypt(spec, testcase, sealed) {
+function externalDecrypt(spec, testcase, sealed) {
   if (spec.kind === 'salsa20' && spec.keyLength === 32) {
-    return salsa20Oracle(testcase.key, testcase.iv, sealed, new Uint8Array(sealed.length));
+    return sodiumSalsa20Xor(testcase.key, testcase.iv, sealed);
   }
   if (spec.kind === 'xchacha20poly1305') {
-    const cipher = new XChaCha20Poly1305(testcase.key);
-    const result = cipher.open(testcase.iv, sealed, testcase.aad);
-    cipher.clean();
-    return result;
+    return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+      null, sealed, testcase.aad, testcase.iv, testcase.key,
+    );
   }
   if (spec.kind === 'aessiv') {
     const associated = [testcase.aad];
@@ -191,9 +221,13 @@ function stableDecrypt(spec, testcase, sealed) {
   return undefined;
 }
 
-function hasStableOracle(spec) {
+function hasExternalOracle(spec) {
   return (spec.kind === 'salsa20' && spec.keyLength === 32) ||
     spec.kind === 'xchacha20poly1305' || spec.kind === 'aessiv';
+}
+
+function externalOracleLabel(spec) {
+  return spec.kind === 'aessiv' ? 'StableLib AES-SIV oracle' : 'libsodium WASM oracle';
 }
 
 function interoperableShape(spec, testcase) {
@@ -222,13 +256,14 @@ function executeRaw(functions, spec, testcase) {
   // Noble's AES entry points intentionally select AES-128/192/256 from the
   // supplied key length, while the Cryptofuzz identifier fixes one variant.
   // A differently sized raw key is still useful parser input, but is not an
-  // interoperable testcase for that fixed Node/StableLib algorithm name.
+  // interoperable testcase for that fixed external algorithm name.
   const interoperable = interoperableShape(spec, testcase);
-  if (interoperable && (hasNodeOracle || hasStableOracle(spec))) {
+  if (interoperable && (hasNodeOracle || hasExternalOracle(spec))) {
     const oracle = hasNodeOracle
       ? outcome(() => encrypting ? nodeEncrypt(spec, testcase) : nodeDecrypt(spec, testcase, testcase.data))
-      : outcome(() => encrypting ? stableEncrypt(spec, testcase) : stableDecrypt(spec, testcase, testcase.data));
-    equalOutcome(actual, oracle, hasNodeOracle ? 'raw Node/OpenSSL oracle' : 'raw StableLib oracle', testcase);
+      : outcome(() => encrypting ? externalEncrypt(spec, testcase) : externalDecrypt(spec, testcase, testcase.data));
+    const label = hasNodeOracle ? 'raw Node/OpenSSL oracle' : `raw ${externalOracleLabel(spec)}`;
+    equalOutcome(actual, oracle, label, testcase);
   }
   return { outcome: actual.ok ? 'accept' : 'reject', value: actual.value };
 }
@@ -278,6 +313,30 @@ function selfTest(functions) {
     '2b4f97e0ff16924a52df269515110a07f9e460bc65ef95da58f740b7d1dbb0aa', 'hex'),
   'eSTREAM Salsa20/20 known-answer', salsa);
 
+  const salsa256 = { ...salsa, cipher: 'SALSA20_256', key: Uint8Array.of(0x80, ...new Uint8Array(31)) };
+  const salsa256Sealed = nobleEncrypt(functions, SPECS_BY_NAME.get(salsa256.cipher), salsa256);
+  equal(salsa256Sealed, externalEncrypt(SPECS_BY_NAME.get(salsa256.cipher), salsa256),
+    'libsodium WASM oracle', salsa256);
+  equal(salsa256Sealed, Buffer.from(
+    'e3be8fdd8beca2e3ea8ef9475b29a6e7003951e1097a5c38d23b7a5fad9f6844' +
+    'b22c97559e2723c7cbbd3fe4fc8d9a0744652a83e72a9c461876af4d7ef1a117', 'hex'),
+  'eSTREAM Salsa20/20 known-answer', salsa256);
+
+  const xchacha = {
+    version: 1,
+    operation: 'Cipher',
+    cipher: 'XCHACHA20_POLY1305',
+    key: Uint8Array.from({ length: 32 }, (_, index) => index),
+    iv: Uint8Array.from({ length: 24 }, (_, index) => index + 32),
+    aad: Uint8Array.of(1, 3, 3, 7),
+    data: Uint8Array.from({ length: 65 }, (_, index) => index * 5 & 0xff),
+  };
+  const xchachaSpec = SPECS_BY_NAME.get(xchacha.cipher);
+  const xchachaSealed = nobleEncrypt(functions, xchachaSpec, xchacha);
+  equal(xchachaSealed, externalEncrypt(xchachaSpec, xchacha), 'libsodium WASM oracle', xchacha);
+  equal(externalDecrypt(xchachaSpec, xchacha, xchachaSealed), xchacha.data,
+    'libsodium WASM decrypt', xchacha);
+
   const xsalsa = {
     version: 1,
     operation: 'Cipher',
@@ -288,15 +347,22 @@ function selfTest(functions) {
     data: new Uint8Array(),
   };
   const xsalsaSealed = functions.xsalsa20poly1305(xsalsa.key, xsalsa.iv).encrypt(xsalsa.data);
+  equal(xsalsaSealed, sodium.crypto_secretbox_easy(xsalsa.data, xsalsa.iv, xsalsa.key),
+    'libsodium WASM oracle', xsalsa);
   equal(xsalsaSealed, Buffer.from('ebNFUe0iT6F8tkYMy5Cg2Q==', 'base64'), 'TweetNaCl secretbox known-answer', xsalsa);
   const damaged = Uint8Array.from(xsalsaSealed);
   damaged[damaged.length - 1] ^= 1;
   if (outcome(() => functions.xsalsa20poly1305(xsalsa.key, xsalsa.iv).decrypt(damaged)).ok) {
     throw new Error('TweetNaCl secretbox accepted modified tag');
   }
+  if (outcome(() => sodium.crypto_secretbox_open_easy(damaged, xsalsa.iv, xsalsa.key)).ok) {
+    throw new Error('libsodium secretbox accepted modified tag');
+  }
 }
 
 export async function createCiphersTarget(sourceDirectory) {
+  await sodium.ready;
+  requireSodiumWasm();
   const load = await packageImporter('@noble/ciphers', sourceDirectory);
   const [aes, chacha, salsa] = await Promise.all([load('aes.js'), load('chacha.js'), load('salsa.js')]);
   const functions = { ...aes, ...chacha, ...salsa };
@@ -312,24 +378,26 @@ export async function createCiphersTarget(sourceDirectory) {
       if (testcase.operation === 'SymmetricDecrypt') {
         const actual = outcome(() => nobleDecrypt(functions, spec, testcase, testcase.data));
         const hasNodeOracle = nodeName(spec) !== undefined;
-        if (hasNodeOracle || hasStableOracle(spec)) {
+        if (hasNodeOracle || hasExternalOracle(spec)) {
           const oracle = hasNodeOracle
             ? outcome(() => nodeDecrypt(spec, testcase, testcase.data))
-            : outcome(() => stableDecrypt(spec, testcase, testcase.data));
-          equalOutcome(actual, oracle, hasNodeOracle ? 'Node/OpenSSL decrypt oracle' : 'StableLib decrypt oracle', testcase);
+            : outcome(() => externalDecrypt(spec, testcase, testcase.data));
+          equalOutcome(actual, oracle,
+            hasNodeOracle ? 'Node/OpenSSL decrypt oracle' : `${externalOracleLabel(spec)} decrypt`, testcase);
         }
         return actual.ok ? actual.value : new Uint8Array();
       }
       const sealed = nobleEncrypt(functions, spec, testcase);
       equal(nobleDecrypt(functions, spec, testcase, sealed), testcase.data, 'Noble encrypt/decrypt', testcase);
-      const oracle = nodeEncrypt(spec, testcase) ?? stableEncrypt(spec, testcase);
+      const oracle = nodeEncrypt(spec, testcase) ?? externalEncrypt(spec, testcase);
       if (oracle !== undefined) {
-        equal(sealed, oracle, nodeName(spec) === undefined ? 'StableLib oracle' : 'Node/OpenSSL oracle', testcase);
+        equal(sealed, oracle, nodeName(spec) === undefined ? externalOracleLabel(spec) : 'Node/OpenSSL oracle', testcase);
         const opened = nodeName(spec) === undefined
-          ? stableDecrypt(spec, testcase, oracle)
+          ? externalDecrypt(spec, testcase, oracle)
           : nodeDecrypt(spec, testcase, oracle);
         if (opened !== undefined) {
-          equal(opened, testcase.data, nodeName(spec) === undefined ? 'StableLib decrypt oracle' : 'Node/OpenSSL decrypt oracle', testcase);
+          equal(opened, testcase.data,
+            nodeName(spec) === undefined ? `${externalOracleLabel(spec)} decrypt` : 'Node/OpenSSL decrypt oracle', testcase);
         }
       }
       if (spec.aead) {
@@ -338,10 +406,10 @@ export async function createCiphersTarget(sourceDirectory) {
         if (outcome(() => nobleDecrypt(functions, spec, testcase, damaged)).ok) {
           throw new Error(`Noble accepted modified authenticated ciphertext for ${testcase.cipher}`);
         }
-        if (nodeName(spec) !== undefined || hasStableOracle(spec)) {
+        if (nodeName(spec) !== undefined || hasExternalOracle(spec)) {
           const independent = nodeName(spec) !== undefined
             ? outcome(() => nodeDecrypt(spec, testcase, damaged))
-            : outcome(() => stableDecrypt(spec, testcase, damaged));
+            : outcome(() => externalDecrypt(spec, testcase, damaged));
           if (independent.ok) throw new Error(`independent oracle accepted modified authenticated ciphertext for ${testcase.cipher}`);
         }
       }

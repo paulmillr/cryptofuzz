@@ -52,7 +52,7 @@ assertSet(postQuantumProject.operations('slh-dsa'), ['PQSIG_KeyGen', 'PQSIG_Sign
 const packageManifest = JSON.parse(await source('noblefuzz/package.json'));
 const independentOracles = [
   'tiny-secp256k1', 'mcl-wasm', 'ffjavascript', '@oqs/liboqs-js',
-  '@stablelib/aes', '@stablelib/salsa20', '@stablelib/siv', '@stablelib/xchacha20poly1305',
+  '@stablelib/aes', '@stablelib/siv', 'libsodium-wrappers-sumo',
 ];
 for (const packageName of independentOracles) {
   assert.equal(typeof packageManifest.dependencies[packageName], 'string', `${packageName} is not pinned`);
@@ -64,6 +64,10 @@ for (const packageName of independentOracles) {
   };
   assert.equal(Object.keys(dependencies).some((name) => name.startsWith('@noble/')), false,
     `${packageName} is not independent from Noble`);
+}
+for (const replacedOracle of ['@stablelib/salsa20', '@stablelib/xchacha20poly1305']) {
+  assert.equal(packageManifest.dependencies[replacedOracle], undefined,
+    `${replacedOracle} should be replaced by libsodium WASM`);
 }
 
 console.log('noblefuzz adapter-contract audit passed');

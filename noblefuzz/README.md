@@ -11,7 +11,7 @@ not build or launch Cryptofuzz.
 | Project | Phase shares | Coverage and independent oracles |
 | --- | --- | --- |
 | `noble-hashes` | digest 65%, KDFs 30%, Argon2 5% | 30 digests, streaming, HMAC, HKDF, PBKDF2, scrypt, and all Argon2 modes; Node/OpenSSL and independent constructions |
-| `noble-ciphers` | ciphers 100% | all 34 adapter variants; Node/OpenSSL, StableLib, and standards known-answer tests |
+| `noble-ciphers` | ciphers 100% | all 34 adapter variants; Node/OpenSSL, libsodium WASM, StableLib AES-SIV, and standards known-answer tests |
 | `noble-curves` | fast 95%, pairing 5% | all 41 non-pairing adapter operations plus pairing/final exponentiation; Node/OpenSSL, tiny-secp256k1 WASM, mcl WASM, and ffjavascript/wasmcurves |
 | `noble-post-quantum` | general 80%, SLH-DSA 20% | all KEM, hybrid KEM, ML-DSA, SLH-DSA, and Falcon identifiers; native Node standards implementations and official liboqs WASM |
 
@@ -56,18 +56,20 @@ and [`noble-curves` candidate manifest](https://github.com/paulmillr/noble-curve
 
 | Native gap | Selected package | Reason |
 | --- | --- | --- |
-| Salsa20, XChaCha20-Poly1305, AES-SIV | StableLib 2.x | Fast implementation used by the upstream cipher benchmark; current libsodium npm wrappers advertise pure JavaScript rather than WASM |
+| Salsa20-256, XChaCha20-Poly1305, XSalsa20-Poly1305 | `libsodium-wrappers-sumo` 0.8.4 | Official libsodium.js WebAssembly build; the sumo package exposes the low-level Salsa20 symbol |
+| AES-SIV | StableLib 2.x | libsodium has no AES-SIV API; this is the fast implementation used by the upstream cipher benchmark |
 | secp256k1 Schnorr/point checks | `tiny-secp256k1` 2.2.4 | Independent BitcoinJS WASM implementation |
 | BLS12-381 | `mcl-wasm` 2.2.0 | Small, fast pairing-oriented WASM implementation |
 | BN254/alt-bn128 | `ffjavascript` 0.3.1 / `wasmcurves` | Established iden3 WASM field, group, and pairing backend |
 | Falcon | `@oqs/liboqs-js` 0.15.1 | Official Open Quantum Safe SIMD-WASM build |
 
-The upstream ChainSafe WASM candidate only duplicates ordinary
-ChaCha20-Poly1305, already covered by Node/OpenSSL. The available
-AES-GCM-SIV/XChaCha npm WASM search results were new or niche and were not
-selected without upstream benchmark evidence. All oracle versions are exact
-lockfile pins, and the contract test rejects an oracle that directly depends on
-Noble.
+The libsodium wrapper normally selects its WebAssembly backend and retains a
+pure-JavaScript compatibility fallback; noblefuzz explicitly rejects that
+fallback at startup. The upstream ChainSafe WASM candidate only duplicates
+ordinary ChaCha20-Poly1305, already covered by Node/OpenSSL. The available
+AES-GCM-SIV npm WASM implementations were new or niche and were not selected
+without upstream benchmark evidence. All oracle versions are exact lockfile
+pins, and the contract test rejects an oracle that directly depends on Noble.
 
 ## Run it
 
