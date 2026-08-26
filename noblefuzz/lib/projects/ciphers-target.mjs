@@ -269,6 +269,18 @@ function executeRaw(functions, spec, testcase) {
 }
 
 function selfTest(functions) {
+  const gcm = {
+    version: 1,
+    operation: 'Cipher',
+    cipher: 'AES_128_GCM',
+    key: new Uint8Array(16),
+    iv: new Uint8Array(12),
+    aad: new Uint8Array(),
+    data: new Uint8Array(),
+  };
+  equal(nobleEncrypt(functions, SPECS_BY_NAME.get(gcm.cipher), gcm),
+    Buffer.from('58e2fccefa7e3061367f1d57a4e7455a', 'hex'), 'NIST GCM known-answer', gcm);
+
   const gcmSiv = {
     version: 1,
     operation: 'Cipher',
@@ -298,6 +310,17 @@ function selfTest(functions) {
   equal(nobleEncrypt(functions, SPECS_BY_NAME.get(siv.cipher), siv),
     Buffer.from('85632d07c6e8f37f950acd320a2ecc9340c02b9690c4dc04daef7f6afe5c', 'hex'),
     'RFC 5297 known-answer', siv);
+
+  // RFC 5649 requires every recovered KWP pad octet to be zero. Build the n=1
+  // AES codebook input directly so the AIV/MLI remain valid while one pad byte is not.
+  const kwpKey = new Uint8Array(16);
+  const malformedKwpBlock = Buffer.from('a65959a6000000014200000000000001', 'hex');
+  const kwpCipher = createCipheriv('aes-128-ecb', kwpKey, null);
+  kwpCipher.setAutoPadding(false);
+  const malformedKwp = Buffer.concat([kwpCipher.update(malformedKwpBlock), kwpCipher.final()]);
+  if (outcome(() => functions.aeskwp(kwpKey).decrypt(malformedKwp)).ok) {
+    throw new Error('AES-KWP accepted nonzero recovered padding');
+  }
 
   const salsa = {
     version: 1,

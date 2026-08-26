@@ -741,6 +741,26 @@ export async function createCurvesTarget(sourceDirectory) {
     load('secp256k1.js'), load('nist.js'), load('ed25519.js'), load('ed448.js'), load('misc.js'),
     load('bls12-381.js'), load('bn254.js'), buildBn128(true),
   ]);
+  equalBytes(ed25519Module.ristretto255.Point.BASE.toBytes(),
+    Uint8Array.from(Buffer.from('e2f2ae0a6abc4e71a884a961c500515f58e30b6aa582dd8db6a65945e08d2d76', 'hex')),
+    'Ristretto255 base-point encoding known answer', { operation: 'startup', curve: 'ristretto255' });
+  equalBytes(ed448Module.decaf448.Point.BASE.toBytes(),
+    Uint8Array.from(Buffer.from(
+      '6666666666666666666666666666666666666666666666666666666633333333333333333333333333333333333333333333333333333333',
+      'hex')),
+    'Decaf448 base-point encoding known answer', { operation: 'startup', curve: 'decaf448' });
+  const emptyMessage = new Uint8Array();
+  equalBytes(blsModule.bls12_381.G1.hashToCurve(emptyMessage).toBytes(true),
+    Uint8Array.from(Buffer.from(
+      'b2e0e662181bd9f8cd8ef246071357cd07a23c4391e879b49e32084dcc1a2aede123c8e8bfcde92edac229e28b719142',
+      'hex')),
+    'BLS12-381 G1 hash-to-curve known answer', { operation: 'startup', curve: 'BLS12_381' });
+  equalBytes(blsModule.bls12_381.G2.hashToCurve(emptyMessage).toBytes(true),
+    Uint8Array.from(Buffer.from(
+      'a8aab303e33ed14f4a904004a92bd26ffc969c1d1e7d4b7f0c04150a73e1845a911e51a2b2d369d5cef06560c5ac9f5' +
+      '715c01566993d4469805df3e1f29b536481a832bf2751b6908faed6776d062d585521889232999d72b679d6e38bb5cfff',
+      'hex')),
+    'BLS12-381 G2 hash-to-curve known answer', { operation: 'startup', curve: 'BLS12_381' });
   await mcl.init(mcl.BLS12_381);
   mcl.setETHserialization(true);
   const definitions = [

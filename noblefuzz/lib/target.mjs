@@ -45,6 +45,10 @@ export async function createTarget(sourceDirectory = process.env.NOBLE_SOURCE_DI
   // could let both paths share the same broken compression function.
   knownAnswer(blake3Module.blake3(new Uint8Array()),
     'af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262', 'BLAKE3 empty input');
+  knownAnswer(blake3Module.blake3(Uint8Array.from(
+    { length: 3072 }, (_, index) => (index * 131 + 17) & 0xff,
+  )), '645f772ee640ef092692f024cd5cf8042db80d4d0f56a50f4276db1493d59bb9',
+  'BLAKE3 multi-chunk tree input');
 
   const hashes = new Map([
     ['MD5', legacy.md5],

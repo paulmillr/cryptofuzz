@@ -1,4 +1,4 @@
-import { createPrivateKey, decapsulate, encapsulate, sign as nativeSign, verify as nativeVerify } from 'node:crypto';
+import { createHash, createPrivateKey, decapsulate, encapsulate, sign as nativeSign, verify as nativeVerify } from 'node:crypto';
 import { createFalcon512, createFalcon1024 } from '@oqs/liboqs-js';
 import { packageImporter } from '../package-importer.mjs';
 
@@ -235,6 +235,20 @@ export async function createPostQuantumTarget(sourceDirectory) {
     load('ml-kem.js'), load('hybrid.js'), load('ml-dsa.js'), load('slh-dsa.js'), load('falcon.js'),
     createFalcon512(), createFalcon1024(),
   ]);
+  const mlKemProbe = mlKem.ml_kem512;
+  const invalidMlKemPublicKey = new Uint8Array(mlKemProbe.lengths.publicKey).fill(0xff);
+  if (attempt(() => mlKemProbe.encapsulate(invalidMlKemPublicKey, new Uint8Array(mlKemProbe.lengths.msgRand))).accepted) {
+    throw new Error('ML-KEM accepted a non-canonical public-key modulus');
+  }
+  const mlKemKeys = mlKemProbe.keygen(Uint8Array.from(
+    { length: mlKemProbe.lengths.seed }, (_, index) => (index * 131 + 7) & 0xff,
+  ));
+  const mlKemSealed = mlKemProbe.encapsulate(mlKemKeys.publicKey, new Uint8Array(mlKemProbe.lengths.msgRand));
+  const damagedMlKemSecret = Uint8Array.from(mlKemKeys.secretKey);
+  damagedMlKemSecret[damagedMlKemSecret.length - 64] ^= 1;
+  if (attempt(() => mlKemProbe.decapsulate(mlKemSealed.cipherText, damagedMlKemSecret)).accepted) {
+    throw new Error('ML-KEM accepted a decapsulation key with a damaged public-key hash');
+  }
   const kemDefinitions = [
     ['ML_KEM_512', mlKem.ml_kem512, 'ML-KEM-512'],
     ['ML_KEM_768', mlKem.ml_kem768, 'ML-KEM-768'],
@@ -247,6 +261,33 @@ export async function createPostQuantumTarget(sourceDirectory) {
     ['QSF_ML_KEM_1024_P384', hybrid.QSF_ml_kem1024_p384],
     ['X_Wing', hybrid.ml_kem768_x25519],
   ];
+  const hybridAnswers = new Map([
+    ['ML_KEM_768_X25519', '6a5f48f4ad79d76f9025f8da2454812adb3ac2aaddea8ae6284d199bcdf8671f'],
+    ['ML_KEM_768_P256', '58b112abd35c656c37da1ef66620db36aa0f4b214e7afbf3d0bfab2fae809a84'],
+    ['ML_KEM_1024_P384', '069eee4b638333ec0aaa66a7c65af5c88617e65a365cb2bd0d7a879182e0e58e'],
+    ['KitchenSink_ML_KEM_768_X25519', '52d1bcea6784af14dec9265c61902bae2330e0f8fbbfb217dd191c504d4f033c'],
+    ['QSF_ML_KEM_768_P256', '8994ba6f08ed8c5d8e546e2e645819c262290682fa49c902d685a5cd9de40193'],
+    ['QSF_ML_KEM_1024_P384', '56dca8d9ac70bfb08700a48de38e4b1fed67dba799b9d43877c43cb174979cb6'],
+  ]);
+  const deterministicBytes = (length, tag) => Uint8Array.from(
+    { length }, (_, index) => (index * 131 + tag * 17 + 29) & 0xff,
+  );
+  let hybridIndex = 0;
+  for (const [name, implementation] of kemDefinitions) {
+    const expected = hybridAnswers.get(name);
+    if (expected === undefined) continue;
+    hybridIndex++;
+    const keys = implementation.keygen(deterministicBytes(implementation.lengths.seed, hybridIndex));
+    const sealed = implementation.encapsulate(
+      keys.publicKey,
+      deterministicBytes(implementation.lengths.msgRand ?? implementation.lengths.msg, hybridIndex + 32),
+    );
+    const fingerprint = createHash('sha256')
+      .update(keys.publicKey).update(sealed.cipherText).update(sealed.sharedSecret).digest();
+    equalBytes(fingerprint, Buffer.from(expected, 'hex'), 'hybrid KEM regression fingerprint', {
+      operation: 'startup', algorithm: name,
+    });
+  }
   const slhNames = ['sha2_128f', 'sha2_128s', 'sha2_192f', 'sha2_192s', 'sha2_256f', 'sha2_256s',
     'shake_128f', 'shake_128s', 'shake_192f', 'shake_192s', 'shake_256f', 'shake_256s'];
   const signatureDefinitions = [
@@ -260,6 +301,22 @@ export async function createPostQuantumTarget(sourceDirectory) {
     ['Falcon_512', falcon.falcon512, undefined, 'Falcon', oqs512],
     ['Falcon_1024', falcon.falcon1024, undefined, 'Falcon', oqs1024],
   ];
+  const mlDsaAnswers = [
+    [mlDsa.ml_dsa44, '3ea49f495dd58ac19336e9affef737c7ad4e8e1cf2b1ff49071cebb4fc054fcb'],
+    [mlDsa.ml_dsa65, '22b81571467bce5328c05e9a8aa2111777fd9f95aed6422a962882334fc93c61'],
+    [mlDsa.ml_dsa87, 'a660426396245d3f5463454677cc8782d8fde2ce3496c3a326e1ab191cbf73c5'],
+  ];
+  for (const [index, [implementation, expected]] of mlDsaAnswers.entries()) {
+    const keys = implementation.keygen(deterministicBytes(implementation.lengths.seed, index + 71));
+    const signature = implementation.sign(deterministicBytes(129, index + 81), keys.secretKey, {
+      context: deterministicBytes(8, index + 91),
+      extraEntropy: deterministicBytes(implementation.lengths.signRand, index + 101),
+    });
+    const fingerprint = createHash('sha256').update(keys.publicKey).update(signature).digest();
+    equalBytes(fingerprint, Buffer.from(expected, 'hex'), 'ML-DSA context regression fingerprint', {
+      operation: 'startup', algorithm: `ML_DSA_${[44, 65, 87][index]}`,
+    });
+  }
   const algorithms = new Map();
   for (const [name, implementation, nativeAlg] of kemDefinitions) {
     algorithms.set(name, { name, implementation, nativeAlg, kind: 'kem', family: name.startsWith('ML_KEM_') && !name.includes('X') && !name.includes('P') ? 'ML-KEM' : 'Hybrid' });
