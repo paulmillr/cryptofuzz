@@ -95,9 +95,7 @@ jobs:
 ```
 
 The reusable workflow derives the fuzzer from the caller repository's exact
-name. It selects the standalone engine for `noble-hashes`, `noble-ciphers`,
-`noble-curves`, and `noble-post-quantum`; the standalone `noble-ed25519` and
-`noble-secp256k1` repositories retain their Cryptofuzz adapters. It validates
+name and selects the standalone engine for all six repositories. It validates
 the selected source package before running. The workflow checks out and builds the latest commit on the
 caller's default branch and fuzzes it for two hours at 14:00 UTC. Each run
 records a fresh random seed and uploads its corpus and any crash artifact so a
@@ -114,8 +112,11 @@ The curves profile assigns 95% to conventional curve, signature, point, field,
 and BLS operations and 5% to pairings. The post-quantum profile assigns 80% to
 KEMs, hybrid KEMs, ML-DSA, and Falcon and 20% to SLH-DSA. Ciphers use one
 phase covering all supported modes.
+The standalone secp256k1 and Ed25519 profiles each use one fast phase covering
+key derivation, signatures, encoded-input rejection, and point arithmetic;
+secp256k1 also covers ECDH, public-key recovery, and BIP340 Schnorr signatures.
 
-These four repositories run through the standalone
+All six repositories run through the standalone
 [`noblefuzz`](../noblefuzz/README.md) engine. Mutation, scheduling, semantic
 coverage, Noble calls, and differential checks remain in persistent V8 worker
 processes; the workflow uses all available CPUs (capped at 10) and does not
@@ -139,7 +140,7 @@ suitable fast independent npm implementation. Corpora, exact failure
 reproducers, per-operation timing, and run metadata retain the existing
 workflow artifact paths.
 
-The four corresponding Cryptofuzz adapters remain available for local
+The six corresponding Cryptofuzz adapters remain available for local
 compatibility and reference comparisons. The hashes adapter's opt-in persistent
 Node worker maps V8 coverage back to libFuzzer counters; without that opt-in it
 uses the embedded QuickJS path.

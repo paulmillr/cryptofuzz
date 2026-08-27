@@ -35,8 +35,15 @@ try {
         assert.ok(stats.featureNames.includes(`${operation}:mode:raw`), `${operation} raw-input mode was not seeded`);
       }
     }
-    if (projectName === 'noble-curves' && phase === 'fast') {
+    if (['noble-curves', 'noble-secp256k1', 'noble-ed25519'].includes(projectName) && phase === 'fast') {
       assert.ok(stats.featureNames.some((feature) => feature.endsWith(':mode:raw')), 'curve raw-input modes were not seeded');
+    }
+    if (projectName === 'noble-secp256k1' || projectName === 'noble-ed25519') {
+      for (const operation of project.operations(phase)) {
+        assert.ok(stats.featureNames.includes(`${operation}:mode:raw`), `${operation} raw-input mode was not seeded`);
+      }
+    }
+    if (projectName === 'noble-curves' && phase === 'fast') {
       const rawVerify = project.seedCases(phase, new PRNG(0x2000), target, maxLength)
         .find((testcase) => testcase.operation === 'BLS_Verify' && testcase.mode === 'raw');
       assert.ok(rawVerify, 'raw BLS verification was not seeded');

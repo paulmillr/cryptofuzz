@@ -24,6 +24,6 @@ jobs:
       - name: Smoke-test all Noble projects
         shell: bash
         run: |
-          for project in noble-hashes noble-ciphers noble-curves noble-post-quantum; do
+          for project in noble-hashes noble-ciphers noble-curves noble-post-quantum noble-secp256k1 noble-ed25519; do
             node noblefuzz/test-project.mjs "$project"
           done

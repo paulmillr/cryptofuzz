@@ -9,6 +9,7 @@ slow-unit-*
 timeout-*
 /fuzz-corpus*/
 /fuzz-artifacts*/
+/fuzz-output/
 /noblefuzz/mutation-report.json
 modules/*/*.a
 repository_map.h

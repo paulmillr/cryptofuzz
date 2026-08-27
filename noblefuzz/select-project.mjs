@@ -13,6 +13,8 @@ const projects = new Map([
   ['noble-ciphers', { packageName: '@noble/ciphers', maxLength: 4096 }],
   ['noble-curves', { packageName: '@noble/curves', maxLength: 4096 }],
   ['noble-post-quantum', { packageName: '@noble/post-quantum', maxLength: 65536 }],
+  ['noble-secp256k1', { packageName: '@noble/secp256k1', maxLength: 4096 }],
+  ['noble-ed25519', { packageName: '@noble/ed25519', maxLength: 4096 }],
 ]);
 const selected = projects.get(projectName);
 if (selected === undefined) throw new Error(`noblefuzz does not support ${JSON.stringify(projectName)}`);

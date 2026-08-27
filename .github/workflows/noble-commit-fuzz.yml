@@ -73,7 +73,7 @@ jobs:
           NOBLE_SOURCE_DIR: ${{ github.workspace }}/noble-source
         run: |
           npm --prefix noblefuzz ci
-          env -u NOBLE_SOURCE_DIR npm --prefix noblefuzz test
+          env -u NOBLE_PROJECT -u NOBLE_SOURCE_DIR npm --prefix noblefuzz test
           node noblefuzz/test-project.mjs "$NOBLE_PROJECT"
 
       - name: Generate 256-bit random seed

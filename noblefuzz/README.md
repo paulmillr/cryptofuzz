@@ -1,9 +1,10 @@
 # noblefuzz
 
 Standalone high-throughput fuzzer for `@noble/hashes`, `@noble/ciphers`,
-`@noble/curves`, and `@noble/post-quantum`, used by the reusable GitHub
-workflow. Mutation, scheduling, semantic feedback, target calls, and result
-checking run in one persistent Node/V8 process; Cryptofuzz is not involved.
+`@noble/curves`, `@noble/post-quantum`, `@noble/secp256k1`, and
+`@noble/ed25519`, used by the reusable GitHub workflow. Mutation, scheduling,
+semantic feedback, target calls, and result checking run in one persistent
+Node/V8 process; Cryptofuzz is not involved.
 
 Every case is deterministic and replayable. Coverage is semantic (algorithms,
 operation combinations, length buckets, block boundaries, parameter sets)
@@ -21,6 +22,8 @@ ciphertexts; rejection is a normal, coverage-feeding outcome.
 | `noble-ciphers` | ciphers 100% | Node/OpenSSL, libsodium WASM, StableLib AES-SIV, known-answer tests |
 | `noble-curves` | fast 95%, pairing 5% | Node/OpenSSL, tiny-secp256k1, mcl-wasm, ffjavascript/wasmcurves |
 | `noble-post-quantum` | general 80%, SLH-DSA 20% | Node standards implementations, official liboqs WASM |
+| `noble-secp256k1` | fast 100% | tiny-secp256k1 WASM |
+| `noble-ed25519` | fast 100% | Node/OpenSSL, libsodium WASM |
 
 Where no fast independent implementation exists (AES-GCM-SIV, Salsa20-128,
 bespoke hybrid KEM combiners), published known-answer tests and per-case
@@ -84,4 +87,5 @@ reporting for `--timeout` seconds (default 600, longer than the slowest
 SLH-DSA operations). Artifacts are uploaded even after a failed workflow run.
 
 The controlled-defect suite in [`mutation/`](mutation/README.md)
-mutation-tests all four libraries with at least 15 defect classes each.
+mutation-tests the four multi-primitive libraries with at least 15 defect
+classes each.

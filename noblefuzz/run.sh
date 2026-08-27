@@ -67,6 +67,18 @@ case "$NOBLE_MODULE" in
         operations=('KEM,ML-DSA,Falcon' SLH-DSA)
         corpus_names=(fuzz-corpus fuzz-corpus-slh-dsa)
         ;;
+    noble-secp256k1)
+        phases=(fast)
+        shares=(100)
+        operations=('ECC,ECDH,ECDSA,Schnorr')
+        corpus_names=(fuzz-corpus)
+        ;;
+    noble-ed25519)
+        phases=(fast)
+        shares=(100)
+        operations=('ECC,EdDSA')
+        corpus_names=(fuzz-corpus)
+        ;;
     *)
         echo "noblefuzz does not support module: $NOBLE_MODULE" >&2
         exit 1

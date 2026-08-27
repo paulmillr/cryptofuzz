@@ -6,8 +6,11 @@ import { CIPHER_SPECS } from './lib/projects/ciphers-target.mjs';
 import { ciphersProject } from './lib/projects/ciphers.mjs';
 import { FIELD_CALC_OPERATIONS, createCurvesTarget } from './lib/projects/curves-target.mjs';
 import { CURVE_FAST_OPERATIONS, CURVE_PAIRING_OPERATIONS } from './lib/projects/curves.mjs';
+import { ED25519_OPERATIONS } from './lib/projects/ed25519.mjs';
+import { projectNames } from './lib/projects/index.mjs';
 import { createPostQuantumTarget } from './lib/projects/post-quantum-target.mjs';
 import { postQuantumProject } from './lib/projects/post-quantum.mjs';
+import { SECP256K1_OPERATIONS } from './lib/projects/secp256k1.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = async (relative) => readFile(path.join(root, relative), 'utf8');
@@ -49,7 +52,26 @@ assertSet(postQuantumProject.operations('general'),
 assertSet(postQuantumProject.operations('slh-dsa'), ['PQSIG_KeyGen', 'PQSIG_Sign', 'PQSIG_Verify'],
   'post-quantum SLH-DSA operations drifted');
 
+const standaloneSecpHarness = await source('modules/noble-secp256k1/harness.js');
+const standaloneSecpOperations = matches(standaloneSecpHarness, /ids\.Is([A-Za-z0-9_]+)\(operation\)/g);
+for (const operation of standaloneSecpOperations) {
+  assert.ok(SECP256K1_OPERATIONS.includes(operation), `standalone secp256k1 adapter operation ${operation} is not fuzzed`);
+}
+const standaloneEdHarness = await source('modules/noble-ed25519/harness.js');
+const standaloneEdOperations = matches(standaloneEdHarness, /ids\.Is([A-Za-z0-9_]+)\(operation\)/g);
+for (const operation of standaloneEdOperations) {
+  assert.ok(ED25519_OPERATIONS.includes(operation), `standalone Ed25519 adapter operation ${operation} is not fuzzed`);
+}
+assertSet(projectNames(), [
+  'noble-hashes', 'noble-ciphers', 'noble-curves', 'noble-post-quantum', 'noble-secp256k1', 'noble-ed25519',
+], 'noblefuzz project registry drifted');
+
 const packageManifest = JSON.parse(await source('noblefuzz/package.json'));
+for (const packageName of [
+  '@noble/hashes', '@noble/ciphers', '@noble/curves', '@noble/post-quantum', '@noble/secp256k1', '@noble/ed25519',
+]) {
+  assert.equal(typeof packageManifest.dependencies[packageName], 'string', `${packageName} is not pinned`);
+}
 const independentOracles = [
   'tiny-secp256k1', 'mcl-wasm', 'ffjavascript', '@oqs/liboqs-js',
   '@stablelib/aes', '@stablelib/siv', 'libsodium-wrappers-sumo',
@@ -72,6 +94,9 @@ for (const replacedOracle of ['@stablelib/salsa20', '@stablelib/xchacha20poly130
 
 const ciWorkflow = await source('.github/workflows/ci.yml');
 assert.match(ciWorkflow, /npm --prefix noblefuzz test/, 'CI does not test noblefuzz');
+for (const projectName of projectNames()) {
+  assert.match(ciWorkflow, new RegExp(`\\b${projectName}\\b`), `CI does not smoke-test ${projectName}`);
+}
 assert.doesNotMatch(ciWorkflow, /\.\/cryptofuzz|build\.sh|make test-noble|test-rust\.sh|modules\/golang/,
   'CI still invokes a Cryptofuzz build or adapter');
 const commitWorkflow = await source('.github/workflows/noble-commit-fuzz.yml');
