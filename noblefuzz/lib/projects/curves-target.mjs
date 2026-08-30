@@ -445,7 +445,11 @@ function executeRawCurve(curves, testcase) {
     const checked = attempt(() => curve.utils.isValidPublicKey(testcase.publicKey));
     if (!checked.accepted || checked.value !== true) return rawOutcome(false);
     if (info.kind === 'weierstrass' || info.kind === 'edwards') {
-      const parsed = curve.Point.fromBytes(testcase.publicKey);
+      // ed25519 defaults isValidPublicKey to ZIP-215 laxity; decode with the same rules,
+      // otherwise non-canonical y (>= p) validates but strict RFC 8032 fromBytes throws.
+      const parsed = info.kind === 'edwards'
+        ? curve.Point.fromBytes(testcase.publicKey, true)
+        : curve.Point.fromBytes(testcase.publicKey);
       parsed.assertValidity();
     }
     return rawOutcome(true, testcase.publicKey);

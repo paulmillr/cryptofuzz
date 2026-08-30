@@ -21,7 +21,7 @@ function safeError(error) {
   };
 }
 
-async function saveFailure(directory, phase, seed, testcase, error, workerId, baseSeed) {
+async function saveFailure(directory, phase, seed, testcase, error, workerId, baseSeed, lineage) {
   await mkdir(directory, { recursive: true });
   const serialized = encodeCase(testcase);
   const id = createHash('sha256').update(serialized).digest('hex').slice(0, 16);
@@ -30,7 +30,7 @@ async function saveFailure(directory, phase, seed, testcase, error, workerId, ba
   const testcasePath = path.join(directory, `${base}.json`);
   const reportPath = path.join(directory, `${base}.report.json`);
   await writeFile(testcasePath, serialized);
-  await writeFile(reportPath, `${JSON.stringify({ phase, seed, baseSeed, workerId, testcase: path.basename(testcasePath), error: safeError(error) }, null, 2)}\n`);
+  await writeFile(reportPath, `${JSON.stringify({ phase, seed, baseSeed, workerId, lineage, testcase: path.basename(testcasePath), error: safeError(error) }, null, 2)}\n`);
   return testcasePath;
 }
 
@@ -202,7 +202,7 @@ export async function runEngine(options) {
 
   let coverageCounter = 0;
   let nextCoverageSample = start;
-  const runOne = async (testcase, saveOnFeature = true, allowCoverage = false) => {
+  const runOne = async (testcase, saveOnFeature = true, allowCoverage = false, lineage = undefined) => {
     project.validateCase(testcase, maxLength, phase);
     const operationStats = operations[testcase.operation];
     const sampleMask = project.sampleMask(phase);
@@ -236,9 +236,27 @@ export async function runEngine(options) {
       }
     } catch (error) {
       const filename = await saveFailure(
-        artifactDirectory, phase, normalizedSeed, testcase, error, workerId, normalizedBaseSeed,
+        artifactDirectory, phase, normalizedSeed, testcase, error, workerId, normalizedBaseSeed, lineage,
       );
+      // CI logs outlive uploaded artifacts; make the printed failure self-contained. The details
+      // go on `stack` because `message` is already baked into the stack string at throw time.
+      const serialized = encodeCase(testcase).trimEnd();
+      const details = [
+        '',
+        `noblefuzz failure: project=${projectName} phase=${phase} worker=${workerId ?? 'main'}`,
+        `  operation: ${testcase.operation ?? 'unknown'}${testcase.curve === undefined ? '' : ` curve=${testcase.curve}`}`,
+        `  seed: ${normalizedSeed} baseSeed: ${normalizedBaseSeed}`,
+        ...(lineage === undefined ? [] : [`  lineage: parent=${lineage.parent} depth=${lineage.depth}`]),
+        `  reproducer: ${filename}`,
+        `  replay: node noblefuzz/cli.mjs replay --project ${projectName} --phase ${phase} --max-len ${maxLength}${sourceDirectory === undefined ? '' : ` --source-dir ${sourceDirectory}`} ${filename}`,
+        `  rerun: node noblefuzz/cli.mjs rerun ${process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
+          ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+          : '(paste this block via stdin)'} --source-dir <noble checkout>`,
+        `  testcase: ${serialized.length > 4096 ? `${serialized.slice(0, 4096)}… (${serialized.length} chars, see reproducer file)` : serialized}`,
+      ].join('\n');
       error.message = `${error.message}; reproducer: ${filename}`;
+      if (typeof error.stack === 'string') error.stack += details;
+      else console.error(details);
       await closeRuntimes(true);
       throw error;
     }
@@ -257,7 +275,12 @@ export async function runEngine(options) {
     corpus.setFeatures(testcase, names);
     const ownedFeatures = saveOnFeature ? await coordinator.claim(newFeatures) : [];
     if (saveOnFeature && ownedFeatures.length > 0) {
-      const stored = capturedCoverage.length === 0 ? testcase : { ...testcase, coverage: capturedCoverage };
+      let stored = testcase;
+      if (capturedCoverage.length > 0 || lineage !== undefined) {
+        stored = { ...testcase };
+        if (capturedCoverage.length > 0) stored.coverage = capturedCoverage;
+        if (lineage !== undefined) stored.lineage = lineage;
+      }
       await corpus.add(stored);
       corpus.setFeatures(stored, names);
     }
@@ -285,8 +308,12 @@ export async function runEngine(options) {
   const desiredRuns = runLimit === undefined ? Infinity : stats.runs + runLimit;
   let nextStatus = start + 10_000;
   let nextYield = stats.runs + project.yieldInterval(phase);
-  let nextCorpusRefresh = start + 1_000;
+  // Refresh by run count, not wall clock, so a worker's decision stream depends only on its
+  // seed and on what the shared corpus contained at fixed run indices — not on machine speed.
+  const corpusRefreshRuns = project.yieldInterval(phase) * 8;
+  let nextCorpusRefresh = stats.runs + corpusRefreshRuns;
   let scheduledBase;
+  let scheduledParent;
   let remainingEnergy = 0;
 
   while (performance.now() < deadline && stats.runs < desiredRuns) {
@@ -301,9 +328,11 @@ export async function runEngine(options) {
       operation = project.chooseOperation(phase, prng);
       base = prng.bool(1, 5) ? undefined : corpus.pick(prng, operation);
       scheduledBase = base;
+      scheduledParent = base === undefined ? undefined : corpus.hashOf(base);
       remainingEnergy = base === undefined ? 0 : corpus.mutationEnergy(base) - 1;
     }
     let testcase;
+    let lineage;
     if (base === undefined) {
       testcase = project.generateCase(phase, prng, target, maxLength, operation);
     } else {
@@ -312,12 +341,17 @@ export async function runEngine(options) {
       for (let index = 0; index < mutationDepth; index++) {
         testcase = project.mutateCase(testcase, phase, prng, target, maxLength, corpus);
         delete testcase.coverage;
+        delete testcase.lineage;
       }
       stats.mutationSteps += mutationDepth;
+      // Best-effort ancestry: a mutation step may replace the case wholesale (fresh generation),
+      // in which case the recorded parent is the mutation session's base, not a true ancestor.
+      if (scheduledParent !== undefined) lineage = { parent: scheduledParent, depth: mutationDepth };
     }
-    // Coverage belongs to the exact recorded input, not to its descendants.
+    // Coverage and lineage belong to the exact recorded input, not to its descendants.
     delete testcase.coverage;
-    await runOne(testcase, true, true);
+    delete testcase.lineage;
+    await runOne(testcase, true, true, lineage);
 
     if (stats.runs >= nextYield) {
       if (process.send !== undefined) {
@@ -330,8 +364,7 @@ export async function runEngine(options) {
       await yieldToEvents();
       nextYield = stats.runs + project.yieldInterval(phase);
     }
-    const now = performance.now();
-    if (now >= nextCorpusRefresh) {
+    if (stats.runs >= nextCorpusRefresh) {
       const imported = await corpus.refresh();
       stats.importedCorpus += imported.length;
       for (const testcase of imported) {
@@ -339,8 +372,9 @@ export async function runEngine(options) {
         addFeatures(features, names);
         corpus.setFeatures(testcase, names);
       }
-      nextCorpusRefresh = now + 1_000;
+      nextCorpusRefresh = stats.runs + corpusRefreshRuns;
     }
+    const now = performance.now();
     if (!quiet && now >= nextStatus) {
       const elapsed = (now - start) / 1000;
       console.log(`# ${phase}: ${stats.runs} runs, ${(stats.runs / Math.max(elapsed, 0.001)).toFixed(0)}/s, ${features.size} features, ${corpus.entries.length} corpus`);

@@ -14,6 +14,7 @@ export class Corpus {
     this.hashes = new Set();
     this.filenames = new Set();
     this.entrySet = new WeakSet();
+    this.hashByEntry = new WeakMap();
     this.featuresByEntry = new WeakMap();
     this.featureFrequency = new Map();
     this.scoreCache = new WeakMap();
@@ -48,10 +49,16 @@ export class Corpus {
     this.hashes.add(hash);
     this.entries.push(testcase);
     this.entrySet.add(testcase);
+    this.hashByEntry.set(testcase, hash);
     const entries = this.byOperation.get(testcase.operation) ?? [];
     entries.push(testcase);
     this.byOperation.set(testcase.operation, entries);
     return true;
+  }
+
+  /** Content hash of a corpus entry — matches its on-disk `<hash>.json` filename. */
+  hashOf(testcase) {
+    return this.hashByEntry.get(testcase);
   }
 
   pick(prng, operation) {

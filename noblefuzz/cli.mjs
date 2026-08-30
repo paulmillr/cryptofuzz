@@ -154,7 +154,9 @@ async function supervise(args) {
       reportError = error;
     }
     const cause = signal ?? (code === null ? message : `exit ${code}`);
-    const suffix = reportError === undefined ? '' : `; could not write failure report: ${reportError.message}`;
+    const suffix = reportError === undefined
+      ? `; report: ${filename}, testcase artifacts: ${options.artifactDirectory}`
+      : `; could not write failure report: ${reportError.message}`;
     rejectFleet(new Error(`noblefuzz ${options.phase} worker ${state.id} failed (${cause})${suffix}`));
   };
 
@@ -270,6 +272,57 @@ async function replay(args) {
   console.log(`Replayed ${count} testcase(s)`);
 }
 
+// Rerun failures straight from pasted CI log text: extracts project/phase and the serialized
+// testcase(s) from `noblefuzz failure:` blocks, so no artifact download or flags are needed.
+// Tolerates per-line log prefixes (timestamps, GitHub Actions step names). Also accepts a bare
+// encoded-testcase JSON line, in which case --project (or NOBLE_PROJECT) selects the project.
+// A GitHub Actions run URL or `--run <id>` fetches the failed-job log via the gh CLI directly.
+async function rerun(args) {
+  let input;
+  const runArgument = args.run ?? (typeof args._[0] === 'string' && /^https:\/\/github\.com\//.test(args._[0]) ? args._[0] : undefined);
+  if (runArgument !== undefined) {
+    const url = String(runArgument).match(/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/);
+    const runId = url === undefined || url === null ? String(runArgument) : url[2];
+    const repoArguments = url ? ['--repo', url[1]] : [];
+    if (!/^\d+$/.test(runId)) throw new Error('--run expects a numeric run id or a github.com/.../actions/runs/<id> URL');
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    input = await promisify(execFile)('gh', ['run', 'view', runId, ...repoArguments, '--log-failed'], { maxBuffer: 256 * 1024 * 1024 })
+      .then(({ stdout }) => stdout, (error) => {
+        throw new Error(`could not fetch the run log via the gh CLI: ${error.message}`);
+      });
+  } else if (args._.length === 0) {
+    if (process.stdin.isTTY) console.error('# paste the failure block, then press Ctrl-D');
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    input = Buffer.concat(chunks).toString('utf8');
+  } else {
+    input = await readFile(path.resolve(args._[0]), 'utf8');
+  }
+  const header = input.match(/noblefuzz failure: project=(\S+) phase=(\S+)/);
+  const serializedCases = [...input.matchAll(/testcase: (\{.*\})/g)].map((match) => match[1]);
+  if (serializedCases.length === 0) {
+    const bare = input.trim();
+    if (!bare.startsWith('{')) throw new Error('no `testcase: {...}` line or bare testcase JSON found in input');
+    serializedCases.push(bare);
+  }
+  if (input.includes('chars, see reproducer file')) {
+    throw new Error('the logged testcase was truncated; download the reproducer artifact and use `replay` instead');
+  }
+  const cases = serializedCases.map((serialized) => decodeCase(serialized));
+  const project = String(args.project ?? header?.[1] ?? process.env.NOBLE_PROJECT ?? 'noble-hashes');
+  const phase = args.phase ?? header?.[2];
+  console.log(`# rerunning ${cases.length} testcase(s): project=${project} phase=${phase ?? 'default'}`);
+  const count = await replayCases({
+    cases,
+    project,
+    phase,
+    maxLength: integerArgument(args, 'max-len', { optional: true }),
+    sourceDirectory: args['source-dir'] ?? process.env.NOBLE_SOURCE_DIR,
+  });
+  console.log(`Reran ${count} testcase(s), no failure`);
+}
+
 async function collectCaseFilenames(values) {
   const filenames = [];
   for (const value of values) {
@@ -346,12 +399,14 @@ async function main() {
     }
   } else if (command === 'replay') {
     await replay(args);
+  } else if (command === 'rerun') {
+    await rerun(args);
   } else if (command === 'minimize') {
     await minimize(args);
   } else if (command === 'reduce-corpus') {
     await reduceCorpusCommand(args);
   } else {
-    throw new Error('usage: noblefuzz/cli.mjs fuzz|replay|minimize|reduce-corpus [options]');
+    throw new Error('usage: noblefuzz/cli.mjs fuzz|replay|rerun|minimize|reduce-corpus [options]');
   }
 }
 
